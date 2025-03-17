@@ -1,0 +1,28 @@
+/* Define global CSS variables */
+/* src/assets/styles.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700&display=swap'); /* Inter */
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap'); /* Roboto */
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;700&display=swap'); /* Poppins */
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;700&display=swap'); /* Montserrat */
+@import url('https://fonts.googleapis.com/css2?family=Merriweather:wght@300;400;700&display=swap'); /* Merriweather */
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@300;400;700&display=swap'); /* Playfair Display */
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@300;400;700&display=swap'); /* Fira Code */
+@import url('https://fonts.googleapis.com/css2?family=Source+Code+Pro:wght@300;400;700&display=swap'); /* Source Code Pro */
+@import url('https://fonts.googleapis.com/css2?family=Lobster&display=swap'); /* Lobster */
+
+:root {
+    --primary-font: 'Roboto', sans-serif;
+}
+
+
+:root {
+    --primary-color: #6ea0d5;
+    --secondary-color: #bf54c5;
+    --background-color: #ffffff;
+    --border-color: #ccc;
+    --primary-font: 'Poppins', sans-serif;
+}
+
+* {
+    font-family: var(--primary-font);
+}
