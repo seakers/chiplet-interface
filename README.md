@@ -1,6 +1,7 @@
 # Chiplet Design Web Interface
 
 ## Project setup
+First, install the __node_modules__ folder in the repository folder with the following command.
 ```
 npm install
 ```
