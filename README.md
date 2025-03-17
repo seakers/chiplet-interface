@@ -1,4 +1,4 @@
-# vuex-app
+# Chiplet Design Web Interface
 
 ## Project setup
 ```
