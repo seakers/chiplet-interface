@@ -7,6 +7,7 @@
     <div id="main-container">
       <!-- Left Column (Sliders) -->
       <div id="left-column">
+        <ComputeSum />
         <Slider :label="filter1" v-model="filterA" />
         <Slider :label="filter2" v-model="filterB" />
       </div>
@@ -34,6 +35,7 @@
 
 <script>
 import axios from "axios";
+import ComputeSum from './components/ComputeSum.vue';
 import Slider from "./components/Slider.vue";
 import Plot from "./components/Plot.vue";
 import Chat from "./components/Chat.vue";
@@ -41,6 +43,7 @@ import "./assets/styles.css";
 
 export default {
   components: {
+    ComputeSum,
     Slider,
     Plot,
     Chat,

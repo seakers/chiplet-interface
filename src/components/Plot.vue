@@ -1,28 +1,27 @@
 <script setup>
 import "../assets/styles.css";
 
-import { onMounted, ref, watch } from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import { Chart, ScatterController, LinearScale, PointElement, Title, Tooltip } from "chart.js";
+import axios from "axios";
 
 Chart.register(ScatterController, LinearScale, PointElement, Title, Tooltip);
 
-const props = defineProps({
-    chartData: {
-        type: Array,
-        default: () => [
-            { x: 1, y: 1 },
-            { x: 2, y: 3 },
-            { x: 3, y: 2 },
-            { x: 4, y: 5 },
-            { x: 5, y: 3 },
-        ],
-    },
-});
-
 const chartRef = ref(null);
 let chartInstance = null;
+let intervalId = null;
 
-const createChart = () => {
+const fetchChartData = async () => {
+    try {
+        const response = await axios.get('http://127.0.0.1:8000/api/chart-data/');
+        return response.data.data;
+    } catch (error) {
+        console.error('Error fetching chart data:', error);
+        return [];
+    }
+};
+
+const createChart = (data) => {
     if (chartInstance) {
         chartInstance.destroy();
     }
@@ -33,10 +32,10 @@ const createChart = () => {
             datasets: [
                 {
                     label: "Scatter Dataset",
-                    data: props.chartData, // Expects an array of { x, y } objects
+                    data: data,
                     backgroundColor: "black",
-                    pointRadius: 4, // Change this value to adjust the point size
-                    pointHoverRadius: 8, // Optional: Change hover effect size
+                    pointRadius: 4,
+                    pointHoverRadius: 8,
                 },
             ],
         },
@@ -46,7 +45,7 @@ const createChart = () => {
             plugins: {
                 title: {
                     display: true,
-                    text: "Scatter Plot", // Chart Title
+                    text: "Scatter Plot",
                 },
             },
             scales: {
@@ -55,7 +54,7 @@ const createChart = () => {
                     position: "bottom",
                     title: {
                         display: true,
-                        text: "X Axis Label", // X Axis Label
+                        text: "X Axis Label",
                         font: { size: 14 },
                     },
                 },
@@ -63,7 +62,7 @@ const createChart = () => {
                     type: "linear",
                     title: {
                         display: true,
-                        text: "Y Axis Label", // Y Axis Label
+                        text: "Y Axis Label",
                         font: { size: 14 },
                     },
                 },
@@ -72,8 +71,23 @@ const createChart = () => {
     });
 };
 
-onMounted(createChart);
-watch(() => props.chartData, createChart, { deep: true });
+const updateChartData = async () => {
+    const newChartData = await fetchChartData();
+    if (chartInstance && chartInstance.data.datasets.length > 0) {
+        chartInstance.data.datasets[0].data = newChartData;
+        chartInstance.update();
+    }
+};
+
+onMounted(async () => {
+    const initialData = await fetchChartData();
+    createChart(initialData);
+    intervalId = setInterval(updateChartData, 5000);
+});
+
+onUnmounted(() => {
+    clearInterval(intervalId);
+});
 </script>
 
 <template>
