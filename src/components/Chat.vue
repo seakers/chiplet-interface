@@ -30,8 +30,8 @@
 
 <script>
 import { ref, nextTick } from "vue";
-import { sendMessageToChatGPT } from "../api"; // Import API function
 import "../assets/styles.css";
+import axios from "axios";
 
 export default {
     props: {
@@ -66,8 +66,17 @@ export default {
                 this.scrollToBottom();
 
                 // Send message to ChatGPT
-                const response = await sendMessageToChatGPT(userMessage);
-                this.messages.push({ text: response, sender: "chat" });
+                // const response = await sendMessageToChatGPT(userMessage);
+                const response = await axios.get('http://127.0.0.1:8000/api/chat-response/',
+                    {
+                        params: {
+                            role: "user",
+                            content: userMessage
+                        }
+                    }
+                );
+                // response = response.data.data;
+                this.messages.push({ text: response.data.response, sender: "chat" });
 
                 this.loading = false;
                 await nextTick();
