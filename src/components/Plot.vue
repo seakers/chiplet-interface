@@ -1,7 +1,6 @@
 <script setup>
 import "../assets/styles.css";
-
-import { onMounted, onUnmounted, ref } from "vue";
+import { onMounted, onUnmounted, ref} from "vue";
 import { Chart, ScatterController, LinearScale, PointElement, Title, Tooltip } from "chart.js";
 import axios from "axios";
 
@@ -13,15 +12,15 @@ let intervalId = null;
 
 const fetchChartData = async () => {
     try {
-        const response = await axios.get('http://127.0.0.1:8000/api/chart-data/');
+        const response = await axios.get("http://127.0.0.1:8000/api/chart-data/");
         return response.data.data;
     } catch (error) {
-        console.error('Error fetching chart data:', error);
+        console.error("Error fetching chart data:", error);
         return [];
     }
 };
 
-const createChart = (data) => {
+const createChart = () => {
     if (chartInstance) {
         chartInstance.destroy();
     }
@@ -32,7 +31,7 @@ const createChart = (data) => {
             datasets: [
                 {
                     label: "Scatter Dataset",
-                    data: data,
+                    data: [], // Initialize with no points
                     backgroundColor: "black",
                     pointRadius: 4,
                     pointHoverRadius: 8,
@@ -71,23 +70,18 @@ const createChart = (data) => {
     });
 };
 
-const updateChartData = async () => {
-    const newChartData = await fetchChartData();
+const updateChartData = (newChartData) => {
     if (chartInstance && chartInstance.data.datasets.length > 0) {
         chartInstance.data.datasets[0].data = newChartData;
         chartInstance.update();
     }
 };
 
-onMounted(async () => {
-    const initialData = await fetchChartData();
-    createChart(initialData);
-    intervalId = setInterval(updateChartData, 5000);
+onMounted(() => {
+    createChart(); // Initialize chart with no points
 });
 
-onUnmounted(() => {
-    clearInterval(intervalId);
-});
+defineExpose({ updateChartData }); // Allows external components to call updateChartData
 </script>
 
 <template>
