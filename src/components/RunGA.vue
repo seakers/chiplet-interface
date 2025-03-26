@@ -1,39 +1,36 @@
 <template>
     <div>
-        <input type="number" v-model.number="num1" placeholder="Population Size">
-        <input type="number" v-model.number="num2" placeholder="Number of Generations">
-        <button @click="fetchSum" :disabled="isRunning">Run GA</button>
+        <input type="number" v-model.number="num1" placeholder="Number 1">
+        <input type="number" v-model.number="num2" placeholder="Number 2">
     </div>
 </template>
 
 <script>
+import { ref } from "vue";
 import axios from 'axios';
-
 
 export default {
     data() {
         return {
             num1: 0,
             num2: 0,
-            isRunning: false, // Prevent automatic execution
+            sumResult: null,
         };
     },
     methods: {
-        async fetchSum() {
-            if (this.isRunning) return; // Prevent duplicate execution
-            this.isRunning = true;
-
+        async callGABackend() {
             try {
-                const response = await axios.get('http://127.0.0.1:8000/api/chart-data/', {
-                    params: { num1: this.num1, num2: this.num2 }
+                const response = await axios.get("http://127.0.0.1:8000/api/chart-data/", {
+                    params: {
+                        num1: this.num1,
+                        num2: this.num2
+                    }
                 });
-
-                console.log("GA run completed:", response.data);
-                this.$emit("onRunGA"); // Notify parent to update Plot
+                console.log("RESPONSE DATA")
+                console.log(response.data.data)
+                return response.data.data
             } catch (error) {
-                console.error("Error running GA:", error);
-            } finally {
-                this.isRunning = false; // Allow re-running after completion
+                console.error("Error fetching chart data:", error);
             }
         }
     }

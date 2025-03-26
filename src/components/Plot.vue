@@ -1,6 +1,6 @@
 <script setup>
 import "../assets/styles.css";
-import { onMounted, onUnmounted, ref} from "vue";
+import { onMounted, onUnmounted, ref } from "vue";
 import { Chart, ScatterController, LinearScale, PointElement, Title, Tooltip } from "chart.js";
 import axios from "axios";
 
@@ -71,17 +71,25 @@ const createChart = () => {
 };
 
 const updateChartData = (newChartData) => {
-    if (chartInstance && chartInstance.data.datasets.length > 0) {
+    if (chartInstance) {
+        console.log("PLOT DATA");
+        console.log(newChartData);
         chartInstance.data.datasets[0].data = newChartData;
+        console.log("CHART DATA");
+        console.log(chartInstance.data)
         chartInstance.update();
     }
 };
+
+// Expose the updateChartData method to the parent component
+defineExpose({
+    updateChartData,
+});
 
 onMounted(() => {
     createChart(); // Initialize chart with no points
 });
 
-defineExpose({ updateChartData }); // Allows external components to call updateChartData
 </script>
 
 <template>

@@ -7,7 +7,10 @@
     <div id="main-container">
       <!-- Left Column (Sliders) -->
       <div id="left-column">
-        <ComputeSum />
+        <button id="run-ga" @click="RunGAMain">
+          Run GA
+        </button>
+        <RunGA ref="RunGA" />
         <Slider :label="filter1" v-model="filterA" />
         <Slider :label="filter2" v-model="filterB" />
       </div>
@@ -15,7 +18,7 @@
       <!-- Middle Column (Plot) -->
       <div id="middle-column">
         <div id="plot-container">
-          <Plot />
+          <Plot ref="Plot" />
         </div>
       </div>
 
@@ -35,7 +38,7 @@
 
 <script>
 import axios from "axios";
-import ComputeSum from './components/ComputeSum.vue';
+import RunGA from './components/RunGA.vue';
 import Slider from "./components/Slider.vue";
 import Plot from "./components/Plot.vue";
 import Chat from "./components/Chat.vue";
@@ -43,7 +46,7 @@ import "./assets/styles.css";
 
 export default {
   components: {
-    ComputeSum,
+    RunGA,
     Slider,
     Plot,
     Chat,
@@ -80,6 +83,12 @@ export default {
     toggleChat() {
       this.chatOpen = !this.chatOpen;
     },
+    async RunGAMain() {
+      const gaData = await this.$refs.RunGA.callGABackend();
+      console.log("DATA MAIN")
+      console.log(gaData)
+      this.$refs.Plot.updateChartData(gaData);
+    }
   },
 };
 </script>
