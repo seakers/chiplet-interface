@@ -7,10 +7,10 @@
     <div id="main-container">
       <!-- Left Column (Sliders) -->
       <div id="left-column">
-        <button id="run-ga" @click="RunGAMain">
+        <!-- <button id="run-ga" @click="RunGAMain">
           Run GA
-        </button>
-        <RunGA ref="RunGA" />
+        </button> -->
+        <RunGA ref="RunGA" @run-ga="RunGAMain" :isRunning="GAisRunning" />
         <Slider :label="filter1" v-model="filterA" />
         <Slider :label="filter2" v-model="filterB" />
       </div>
@@ -18,7 +18,7 @@
       <!-- Middle Column (Plot) -->
       <div id="middle-column">
         <div id="plot-container">
-          <Plot ref="Plot" />
+          <Plot ref="Plot" @point-message="SendMessageWithPoint"/>
         </div>
       </div>
 
@@ -27,7 +27,7 @@
         <button id="chat-toggle" @click="toggleChat">
           {{ chatOpen ? "Close Chat" : "Open Chat" }}
         </button>
-        <Chat v-if="chatOpen" :chatOpen="chatOpen" @toggle-chat="toggleChat" />
+        <Chat v-if="chatOpen" ref="Chat" :chatOpen="chatOpen" @toggle-chat="toggleChat" />
       </div>
     </div>
 
@@ -62,6 +62,7 @@ export default {
       filter1: "Latency (ns)",
       filter2: "W3d (ns)",
       chatOpen: false, // Chat visibility state
+      GAisRunning: false,
     };
   },
   methods: {
@@ -84,10 +85,34 @@ export default {
       this.chatOpen = !this.chatOpen;
     },
     async RunGAMain() {
-      const gaData = await this.$refs.RunGA.callGABackend();
-      console.log("DATA MAIN")
-      console.log(gaData)
-      this.$refs.Plot.updateChartData(gaData);
+      this.GAisRunning = true;
+      try {
+        const gaData = await this.$refs.RunGA.callGABackend();
+        console.log("DATA MAIN")
+        console.log(gaData)
+        this.$refs.Plot.updateChartData(gaData);
+      } catch (error) {
+        console.error("Error running GA:", error);
+      } finally {
+        this.GAisRunning = false;
+      }
+    },
+    async SendMessageWithPoint(dataPoint) {
+      // UPDATE THIS TO SEND A MESSAGE
+      const message = `Tell me about: ${dataPoint.x}, ${dataPoint.y}`;
+
+      // Open the chat if it's not already open
+      if (!this.chatOpen) {
+        this.chatOpen = true;
+        // Wait for Chat component to be mounted and $refs.Chat to exist
+        await this.$nextTick();
+      }
+
+      this.$refs.Chat.chatMessage = message;
+      this.$refs.Chat.sendMessage();
+
+      // this.$refs.Chat.messages.push({ text: `GA Data: ${x}, ${y} `, sender: "user" });
+      // this.$refs.Chat.sendMessage(); // maybe this way?
     }
   },
 };
@@ -98,7 +123,8 @@ export default {
 #app {
   font-family: Avenir, Helvetica, Arial, sans-serif;
   text-align: center;
-  height: 100%; /* Full height */
+  height: 100%;
+  /* Full height */
   margin: 0;
   padding: 0;
   display: flex;
@@ -112,14 +138,16 @@ export default {
 /* Three-column layout */
 #main-container {
   display: flex;
-  align-items: stretch; /* Make all columns the same height */
+  align-items: stretch;
+  /* Make all columns the same height */
   border-top: 3px solid var(--primary-color);
   border-bottom: 3px solid var(--primary-color);
 }
 
 /* Left Column - Sliders */
 #left-column {
-  width: 20%; /* Reduce width to give more space to the middle */
+  width: 20%;
+  /* Reduce width to give more space to the middle */
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -130,7 +158,8 @@ export default {
 
 /* Middle Column - Plot */
 #middle-column {
-  width: 60%; /* Make the middle section larger */
+  width: 60%;
+  /* Make the middle section larger */
   display: flex;
   justify-content: center;
   align-items: center;
@@ -140,7 +169,8 @@ export default {
 
 /* Right Column - Chat */
 #right-column {
-  width: 20%; /* Reduce width */
+  width: 20%;
+  /* Reduce width */
   display: flex;
   flex-direction: column;
   align-items: center;

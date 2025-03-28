@@ -1,7 +1,26 @@
 <template>
     <div>
-        <input type="number" v-model.number="num1" placeholder="Number 1">
-        <input type="number" v-model.number="num2" placeholder="Number 2">
+        <div style="display: flex; gap: 1rem; align-items: flex-start;">
+            <div>
+                <label for="population">Population</label><br>
+                <input
+                    id="population"
+                    type="number"
+                    v-model.number="num1"
+                    placeholder="Example: 10"
+                >
+            </div>
+            <div>
+                <label for="generations">Generations</label><br>
+                <input
+                    id="generations"
+                    type="number"
+                    v-model.number="num2"
+                    placeholder="Example: 5"
+                >
+            </div>
+        </div>
+        <button @click="$emit('run-ga')" :disabled="isRunning" style="margin-top: 1rem">Run GA</button>
     </div>
 </template>
 
@@ -10,6 +29,12 @@ import { ref } from "vue";
 import axios from 'axios';
 
 export default {
+    props: {
+        isRunning: {
+            type: Boolean,
+            default: false
+        }
+    },
     data() {
         return {
             num1: 0,
@@ -33,6 +58,7 @@ export default {
                 console.error("Error fetching chart data:", error);
             }
         }
-    }
+    },
+    
 };
 </script>

@@ -16,13 +16,17 @@
             </div>
 
             <div id="chat-input">
-                <textarea 
-                    v-model="chatMessage" 
-                    placeholder="Type your message..."
-                    @keydown.enter.exact.prevent="sendMessage" 
-                    @keydown.enter.shift="insertNewLine"
-                />
-                <button @click="sendMessage">Send</button>
+                <textarea v-model="chatMessage" placeholder="Type your message..."
+                    @keydown.enter.exact.prevent="sendMessage" @keydown.enter.shift="insertNewLine" />
+                <div id="chat-input-buttons" class="dropdown-wrapper">
+                    <button @click="sendMessage">Send</button>
+                    <button @click="showOptions = !showOptions">Model Options</button>
+                    <ul v-if="showOptions" class="dropdown-options">
+                        <li @click="dropdownSelectOption('Hello')">Say Hello AAAAAAAAAAAA</li>
+                        <li @click="dropdownSelectOption('Help')">Ask for Help</li>
+                        <li @click="dropdownSelectOption('Clear')">Clear Chat</li>
+                    </ul>
+                </div>
             </div>
         </div>
     </div>
@@ -43,6 +47,7 @@ export default {
             chatMessage: "",
             messages: [],
             loading: false, // Shows loading while waiting for response
+            showOptions: false,
         };
     },
     setup() {
@@ -88,6 +93,12 @@ export default {
                 this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
             }
         },
+        dropdownSelectOption(option) {
+            if (option === "Clear") {
+                this.messages = [];
+            }
+            this.showOptions = false;
+        },
     },
 };
 </script>
@@ -105,6 +116,7 @@ export default {
     bottom: 0;
     display: flex;
     flex-direction: column;
+    height: 100vh;
 }
 
 /* Chat Header */
@@ -130,55 +142,111 @@ export default {
 #chat-body {
     display: flex;
     flex-direction: column;
-    flex-grow: 1;
+    flex: 1;
     height: 100%;
     padding: 15px;
+    overflow: hidden;
 }
 
 #chat-messages {
-    flex-grow: 1;
+    flex: 1;
     overflow-y: auto;
     padding: 10px;
     display: flex;
     flex-direction: column;
-    max-height: 500px;
     scroll-behavior: smooth;
 }
 
-/* General message style */
 .chat-message {
     padding: 8px 12px;
     margin: 5px 0;
     border-radius: 10px;
     max-width: 70%;
+    font-size: 14px;
     word-wrap: break-word;
+    text-align: center; /* ✅ center the text */
+    align-self: center; /* ✅ center the bubble in the container */
 }
 
 /* User messages (align right) */
-.user {
+.chat-message.user {
     background: var(--primary-color);
     color: white;
     align-self: flex-end;
+    text-align: left;
 }
 
 /* Chat responses (align left) */
-.chat {
+.chat-message.chat {
     background: #f1f1f1;
     color: black;
     align-self: flex-start;
+    text-align: left;
 }
 
-.chat-message.chat {
-    text-align: left;
-    font-style: italic;
-    color: gray;
+#chat-input {
+    padding: 10px;
+    border-top: 1px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    align-items: center;
+}
+
+#chat-input-buttons {
+    width: 100%;
+    border-top: 1px;
+    display: flex;
+    flex-direction: row;
+    gap: 5px;
+    align-items: center;
+}
+
+#chat-input-buttons button {
+    width: 100%;
+    margin-top: 0px;
+    padding: 10px;
+    background: var(--primary-color);
+    color: white;
+    border-radius: 5px;
+    border: none;
+    cursor: pointer;
+    position: relative;
+}
+
+.dropdown-wrapper {
+    position: relative;
+    display: inline-block;
+}
+
+.dropdown-options {
+    position: absolute;
+    bottom: 100%;
+    right: 0;
+    margin-bottom: 10px;
+    padding: 5px;
+    list-style: none;
+    background: white;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+    z-index: 10;
+}
+
+.dropdown-options li {
+    padding: 5px 10px;
+    cursor: pointer;
+    align-items: center;
+}
+
+.dropdown-options li:hover {
+    background-color: #f0f0f0;
+    border-radius: 5px;
 }
 
 textarea {
-    width: 80%;
+    width: 100%;
     height: 100px;
-    margin-top: 10px;
-    margin-bottom: 10px;
     padding: 10px;
     border-radius: 5px;
     border: 1px solid #ccc;
