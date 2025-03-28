@@ -37,7 +37,14 @@ const createChart = () => {
                 {
                     label: "Scatter Dataset",
                     data: [], // Initialize with no points
-                    backgroundColor: "black",
+                    backgroundColor: ["black", "green", "blue", "red"],
+                    pointRadius: 4,
+                    pointHoverRadius: 8,
+                },
+                {
+                    label: "Scatter Dataset 2",
+                    data: [{'x': 900, 'y': 100}], // Initialize with no points
+                    backgroundColor: ["purple"],
                     pointRadius: 4,
                     pointHoverRadius: 8,
                 },
@@ -88,6 +95,16 @@ const createChart = () => {
                     },
                 },
             },
+            legend: {
+                display: true, // ✅ show the legend
+                position: "top", // "top", "left", "bottom", "right"
+                labels: {
+                    font: {
+                    size: 12,
+                    },
+                    color: "#333", // optional
+                },
+            },
         },
     });
 };
@@ -135,7 +152,6 @@ const handleClickOutside = (event) => {
         showDropdown.value = false;
     }
 };
-
 </script>
 
 <template>

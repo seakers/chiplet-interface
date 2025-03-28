@@ -30,8 +30,10 @@
         <Chat v-if="chatOpen" ref="Chat" :chatOpen="chatOpen" @toggle-chat="toggleChat" />
       </div>
     </div>
-
-    <p>{{ status }}</p>
+    <div id="second-container">
+      <button style="margin: 5px;">Useless button</button>
+      <DragDrop />
+    </div>
   </div>
 </template>
 
@@ -42,6 +44,7 @@ import RunGA from './components/RunGA.vue';
 import Slider from "./components/Slider.vue";
 import Plot from "./components/Plot.vue";
 import Chat from "./components/Chat.vue";
+import DragDrop from "./components/DragDrop.vue";
 import "./assets/styles.css";
 
 export default {
@@ -50,6 +53,7 @@ export default {
     Slider,
     Plot,
     Chat,
+    DragDrop,
   },
   data() {
     return {
@@ -142,6 +146,14 @@ export default {
   /* Make all columns the same height */
   border-top: 3px solid var(--primary-color);
   border-bottom: 3px solid var(--primary-color);
+}
+
+/* Three-column layout */
+#second-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: 5px;
 }
 
 /* Left Column - Sliders */
