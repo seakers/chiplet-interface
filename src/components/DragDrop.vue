@@ -14,12 +14,13 @@
                 {{ item }}
             </div>
         </div>
-
-        <button @click="confirm" :disabled="dropItems.length === 0">Confirm</button>
     </div>
 </template>
 
 <script>
+import { ref } from "vue";
+import axios from 'axios';
+
 export default {
     data() {
         return {
@@ -38,8 +39,23 @@ export default {
                 this.draggingItem = null;
             }
         },
-        confirm() {
-            this.dropItems = [];
+        async evaluate_point() {
+            try {
+                console.log("In Confirm")
+                console.log(this.dropItems)
+                const response = await axios.get("http://127.0.0.1:8000/api/evaluate-point/", {
+                    params: {
+                        chiplets: this.dropItems,
+                        trace: "gpt-j-65536-weighted",
+                    }
+                });
+                console.log("EVAL DATA")
+                console.log(response.data.data)
+                return response.data.data;
+            } catch (error) {
+                console.error("Error evaluating design: ", error)
+            }
+            // this.dropItems = [];
             // You can also emit or send this to a backend
             // this.$emit("confirm-order", this.dropItems);
         },

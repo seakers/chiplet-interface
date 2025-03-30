@@ -96,6 +96,13 @@ export default {
         dropdownSelectOption(option) {
             if (option === "Clear") {
                 this.messages = [];
+                axios.post('http://127.0.0.1:8000/api/clear-chat/')
+                    .then(() => {
+                        console.log("Chat cleared on the backend.");
+                    })
+                    .catch((error) => {
+                        console.error("Error clearing chat on the backend:", error);
+                    });
             }
             this.showOptions = false;
         },

@@ -31,8 +31,8 @@
       </div>
     </div>
     <div id="second-container">
-      <button style="margin: 5px;">Useless button</button>
-      <DragDrop />
+      <button @click="evaluate_design" style="margin: 5px;">Evaluate Design</button>
+      <DragDrop ref="DragDrop" />
     </div>
   </div>
 </template>
@@ -117,7 +117,16 @@ export default {
 
       // this.$refs.Chat.messages.push({ text: `GA Data: ${x}, ${y} `, sender: "user" });
       // this.$refs.Chat.sendMessage(); // maybe this way?
-    }
+    },
+    async evaluate_design() {
+      try {
+        const eval_data = await this.$refs.DragDrop.evaluate_point();
+        console.log("Design evaluation confirmed.");
+        this.$refs.Plot.updateChartData(eval_data);
+      } catch (error) {
+        console.error("Error confirming design evaluation:", error);
+      }
+    },
   },
 };
 </script>
