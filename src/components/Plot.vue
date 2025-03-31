@@ -41,13 +41,6 @@ const createChart = () => {
                     pointRadius: 4,
                     pointHoverRadius: 8,
                 },
-                {
-                    label: "Scatter Dataset 2",
-                    data: [{'x': 900, 'y': 100}], // Initialize with no points
-                    backgroundColor: ["purple"],
-                    pointRadius: 4,
-                    pointHoverRadius: 8,
-                },
             ],
         },
         options: {
@@ -57,6 +50,15 @@ const createChart = () => {
                 title: {
                     display: true,
                     text: "Scattered Data Points",
+                },
+                tooltip: {
+                    callbacks: {
+                        label: (context) => {
+                            const dataPoint = context.raw;
+                            // Customize tooltip to show extra information
+                            return `X: ${dataPoint.x}, Y: ${dataPoint.y}, GPU: ${dataPoint.gpu}, Attn: ${dataPoint.attn}, Sparse: ${dataPoint.sparse}, Conv: ${dataPoint.conv}`;
+                        },
+                    },
                 },
             },
             onClick: (event, elements) => {
@@ -70,7 +72,8 @@ const createChart = () => {
                     dropdownX.value = event.clientX - canvasPosition.left;
                     dropdownY.value = event.clientY - canvasPosition.top;
 
-                    selectedPoint.value = dataPoint;
+                    // Include all data point properties in the selectedPoint
+                    selectedPoint.value = { ...dataPoint };
                     showDropdown.value = true;
                 } else {
                     showDropdown.value = false;
@@ -82,7 +85,7 @@ const createChart = () => {
                     position: "bottom",
                     title: {
                         display: true,
-                        text: "X Axis Label",
+                        text: "Execution Time",
                         font: { size: 14 },
                     },
                 },
@@ -90,32 +93,48 @@ const createChart = () => {
                     type: "linear",
                     title: {
                         display: true,
-                        text: "Y Axis Label",
+                        text: "Energy Used",
                         font: { size: 14 },
                     },
                 },
             },
             legend: {
-                display: true, // ✅ show the legend
-                position: "top", // "top", "left", "bottom", "right"
+                display: true,
+                position: "top",
                 labels: {
                     font: {
-                    size: 12,
+                        size: 12,
                     },
-                    color: "#333", // optional
+                    color: "#333",
                 },
             },
         },
     });
 };
 
+const startInterval = () => {
+    setInterval(async () => {
+        try {
+            const response = await axios.get("http://127.0.0.1:8000/api/update-data/");
+            const newChartData = response.data.data;
+
+            // Ensure data is in the correct format
+            if (Array.isArray(newChartData) && newChartData.every(point => 'x' in point && 'y' in point)) {
+                updateChartData(newChartData);
+            } else {
+                console.error("Invalid data format:", newChartData);
+            }
+        } catch (error) {
+            console.error("Error fetching updated chart data:", error);
+        }
+    }, 10000);
+};
+
+startInterval();
+
 const updateChartData = (newChartData) => {
     if (chartInstance) {
-        console.log("PLOT DATA");
-        console.log(newChartData);
-        chartInstance.data.datasets[0].data = newChartData;
-        console.log("CHART DATA");
-        console.log(chartInstance.data)
+        chartInstance.data.datasets[0].data = newChartData.map(point => ({ ...point }));
         chartInstance.update();
     }
 };

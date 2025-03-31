@@ -58,6 +58,10 @@ export default {
         toggleChat() {
             this.$emit("toggle-chat");
         },
+        async assistantMessage() {
+            this.messages.push({ text: this.chatMessage, sender: "chat" });
+            this.chatMessage = ""; // Clear input
+        },
         async sendMessage() {
             if (this.chatMessage.trim() !== "") {
                 // Add user message

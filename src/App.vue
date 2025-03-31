@@ -102,8 +102,27 @@ export default {
       }
     },
     async SendMessageWithPoint(dataPoint) {
+      const exe = dataPoint.x
+      const energy = dataPoint.y
+      const gpu = dataPoint.gpu
+      const attn = dataPoint.attn
+      const sparse = dataPoint.sparse
+      const conv = dataPoint.conv
+
+      await axios.get('http://127.0.0.1:8000/api/add-info/',
+          {
+              params: {
+                  exe: exe,
+                  energy: energy,
+                  gpu: gpu,
+                  attn: attn,
+                  sparse: sparse,
+                  conv: conv
+              }
+          }
+      );
       // UPDATE THIS TO SEND A MESSAGE
-      const message = `Tell me about: ${dataPoint.x}, ${dataPoint.y}`;
+      const message = `I have received context on this design! I am ready to answer questions about it.`;
 
       // Open the chat if it's not already open
       if (!this.chatOpen) {
@@ -113,7 +132,7 @@ export default {
       }
 
       this.$refs.Chat.chatMessage = message;
-      this.$refs.Chat.sendMessage();
+      this.$refs.Chat.assistantMessage();
 
       // this.$refs.Chat.messages.push({ text: `GA Data: ${x}, ${y} `, sender: "user" });
       // this.$refs.Chat.sendMessage(); // maybe this way?
