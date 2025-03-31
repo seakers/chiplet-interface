@@ -72,13 +72,13 @@ export default {
 }
 
 .item-menu {
-    border: 1px solid #ccc;
+    border: 2px solid #ccc;
     padding: 10px;
-    width: 300px;
+    width: 150px;
 }
 
 .draggable {
-    padding: 10px;
+    padding: 1px;
     margin: 5px 0;
     background: #f0f0f0;
     cursor: grab;
@@ -88,9 +88,9 @@ export default {
 
 .drop-zone {
     border: 2px dashed #aaa;
-    padding: 20px;
-    width: 300px;
-    min-height: 100px;
+    padding: 10px;
+    margin: 5px 0;
+    width: 150px;
     background: #fafafa;
     text-align: center;
 }
@@ -100,9 +100,10 @@ export default {
 }
 
 .dropped-item {
-    padding: 8px;
+    padding: 1px;
     background: #cce5ff;
-    margin: 4px 0;
-    border-radius: 3px;
+    margin: 5px 0;
+    border: 1px solid var(--primary-color);
+    border-radius: 4px;
 }
 </style>

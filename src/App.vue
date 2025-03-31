@@ -11,8 +11,10 @@
           Run GA
         </button> -->
         <RunGA ref="RunGA" @run-ga="RunGAMain" :isRunning="GAisRunning" />
-        <Slider :label="filter1" v-model="filterA" />
-        <Slider :label="filter2" v-model="filterB" />
+        <!-- <Slider :label="filter1" v-model="filterA" />
+        <Slider :label="filter2" v-model="filterB" /> -->
+        <button @click="evaluate_design" style="margin: 5px;">Evaluate Design</button>
+        <DragDrop ref="DragDrop" />
       </div>
 
       <!-- Middle Column (Plot) -->
@@ -27,12 +29,12 @@
         <button id="chat-toggle" @click="toggleChat">
           {{ chatOpen ? "Close Chat" : "Open Chat" }}
         </button>
-        <Chat v-if="chatOpen" ref="Chat" :chatOpen="chatOpen" @toggle-chat="toggleChat" />
+        <Chat v-show="chatOpen" ref="Chat" :chatOpen="chatOpen" @toggle-chat="toggleChat" />
       </div>
     </div>
     <div id="second-container">
-      <button @click="evaluate_design" style="margin: 5px;">Evaluate Design</button>
-      <DragDrop ref="DragDrop" />
+      <!-- <button @click="evaluate_design" style="margin: 5px;">Evaluate Design</button>
+      <DragDrop ref="DragDrop" /> -->
     </div>
   </div>
 </template>
@@ -167,35 +169,34 @@ export default {
 
 /* Left Column - Sliders */
 #left-column {
-  width: 20%;
+  width: 25%;
   /* Reduce width to give more space to the middle */
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 20px;
-  padding: 20px;
 }
 
 /* Middle Column - Plot */
 #middle-column {
-  width: 60%;
+  width: 50%;
   /* Make the middle section larger */
   display: flex;
   justify-content: center;
   align-items: center;
   background: var(--background-color);
+  outline: 3px solid var(--primary-color);
   padding: 20px;
 }
 
 /* Right Column - Chat */
 #right-column {
-  width: 20%;
+  width: 25%;
   /* Reduce width */
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20px;
 }
 
 /* Adjust Plot Size */
@@ -205,6 +206,7 @@ export default {
   display: flex;
   justify-content: center;
   align-items: center;
+  padding: 10px;
 }
 
 /* Button to Open Chat */

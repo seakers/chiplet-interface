@@ -1,6 +1,6 @@
 <script setup>
 import "../assets/styles.css";
-import { onMounted, onUnmounted, ref } from "vue";
+import { onMounted, onUnmounted, ref, watch } from "vue";
 import { Chart, ScatterController, LinearScale, PointElement, Title, Tooltip } from "chart.js";
 import axios from "axios";
 
@@ -14,6 +14,10 @@ const dropdownY = ref(0);
 const selectedPoint = ref(null);
 const pointDropdownRef = ref(null);
 const emit = defineEmits(["point-message"]);
+
+const availableAxes = ref(["Total time (ms)", "Total Energy (mJ)", "Temperature (K)", "Latency (μs)"]); // etc.
+const selectedXAxis = ref("Total time (ms)");
+const selectedYAxis = ref("Total Energy (mJ)");
 
 const fetchChartData = async () => {
     try {
@@ -43,7 +47,7 @@ const createChart = () => {
                 },
                 {
                     label: "Scatter Dataset 2",
-                    data: [{'x': 900, 'y': 100}], // Initialize with no points
+                    data: [{ 'x': 900, 'y': 100 }], // Initialize with no points
                     backgroundColor: ["purple"],
                     pointRadius: 4,
                     pointHoverRadius: 8,
@@ -55,7 +59,7 @@ const createChart = () => {
             maintainAspectRatio: false,
             plugins: {
                 title: {
-                    display: true,
+                    display: false,
                     text: "Scattered Data Points",
                 },
             },
@@ -82,7 +86,7 @@ const createChart = () => {
                     position: "bottom",
                     title: {
                         display: true,
-                        text: "X Axis Label",
+                        text: "Total time (ms)",
                         font: { size: 14 },
                     },
                 },
@@ -90,7 +94,7 @@ const createChart = () => {
                     type: "linear",
                     title: {
                         display: true,
-                        text: "Y Axis Label",
+                        text: "Total Energy (mJ)",
                         font: { size: 14 },
                     },
                 },
@@ -100,7 +104,7 @@ const createChart = () => {
                 position: "top", // "top", "left", "bottom", "right"
                 labels: {
                     font: {
-                    size: 12,
+                        size: 12,
                     },
                     color: "#333", // optional
                 },
@@ -108,6 +112,14 @@ const createChart = () => {
         },
     });
 };
+
+watch([selectedXAxis, selectedYAxis], ([newX, newY]) => {
+    if (chartInstance) {
+        chartInstance.options.scales.x.title.text = newX;
+        chartInstance.options.scales.y.title.text = newY;
+        chartInstance.update();
+    }
+});
 
 const updateChartData = (newChartData) => {
     if (chartInstance) {
@@ -138,9 +150,6 @@ onUnmounted(() => {
 
 const handlePointAction = () => {
     console.log("Point clicked:", selectedPoint.value);
-    // CHANGE THIS ALERT WHEN IMPLEMENTING CUSTOM FUNCTIONALITY
-    // alert(`Action on point: (${selectedPoint.value.x}, ${selectedPoint.value.y})`);
-    // Custon function (maybe send data to the chat?)
     emit("point-message", selectedPoint.value);
     showDropdown.value = false;
 };
@@ -158,36 +167,64 @@ const handleClickOutside = (event) => {
     <div class="chart-container" style="position: relative;">
         <canvas ref="chartRef"></canvas>
 
-        <!-- Dropdown shown on point click -->
-        <div v-if="showDropdown" ref="pointDropdownRef" class="chart-dropdown"
-            :style="{ top: dropdownY + 'px', left: dropdownX + 'px' }">
-            <p><strong>Selected Point</strong></p>
-            <p>X: {{ selectedPoint?.x }}</p>
-            <p>Y: {{ selectedPoint?.y }}</p>
-            <button @click="handlePointAction" class="point-button">Send to chat</button>
-            <button @click="showDropdown = false" class="point-button">Close</button>
+        <div class="axis_select">
+            <label>Y Axis:
+                <select v-model="selectedYAxis">
+                    <option v-for="axis in availableAxes" :key="axis" :value="axis">{{ axis }}</option>
+                </select>
+            </label>
+
+            <label>X Axis:
+                <select v-model="selectedXAxis">
+                    <option v-for="axis in availableAxes" :key="axis" :value="axis">{{ axis }}</option>
+                </select>
+            </label>
         </div>
     </div>
-</template>
 
+    <div v-if="showDropdown" ref="pointDropdownRef" class="chart-dropdown global-dropdown"
+        :style="{ top: dropdownY + 'px', left: dropdownX + 'px' }">
+        <p><strong>Selected Point</strong></p>
+        <p>X: {{ selectedPoint?.x }}</p>
+        <p>Y: {{ selectedPoint?.y }}</p>
+        <button @click="handlePointAction" class="point-button">Send to chat</button>
+        <button @click="showDropdown = false" class="point-button">Close</button>
+    </div>
+</template>
 
 <style scoped>
 .chart-container {
     width: 100%;
     height: 100%;
     padding-top: 20px;
-    padding-bottom: 20px;
+    padding-bottom: 40px;
+    /* padding-bottom: 20px; */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.axis_select {
+    display: flex;
+    gap: 20px;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .chart-dropdown {
-    position: absolute;
     background: white;
     border: 1px solid #ccc;
     padding: 15px;
     padding-top: 0px;
-    z-index: 10;
+    z-index: 9999;
     box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
     border-radius: 4px;
+}
+
+.global-dropdown {
+    position: absolute;
+    /* Or use `fixed` if you want it to stay visible on scroll */
 }
 
 .point-button {
