@@ -21,7 +21,7 @@
       <!-- Middle Column (Plot) -->
       <div id="middle-column">
         <div id="plot-container">
-          <Plot ref="Plot" @point-message="SendMessageWithPoint"/>
+          <Plot ref="Plot" @point-message="SendMessageWithPoint" />
         </div>
       </div>
 
@@ -115,16 +115,16 @@ export default {
       const conv = dataPoint.conv
 
       await axios.get('http://127.0.0.1:8000/api/add-info/',
-          {
-              params: {
-                  exe: exe,
-                  energy: energy,
-                  gpu: gpu,
-                  attn: attn,
-                  sparse: sparse,
-                  conv: conv
-              }
+        {
+          params: {
+            exe: exe,
+            energy: energy,
+            gpu: gpu,
+            attn: attn,
+            sparse: sparse,
+            conv: conv
           }
+        }
       );
       // UPDATE THIS TO SEND A MESSAGE
       const message = `I have received context on this design! I am ready to answer questions about it.`;
