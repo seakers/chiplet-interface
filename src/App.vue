@@ -13,8 +13,9 @@
         <RunGA ref="RunGA" @run-ga="RunGAMain" :isRunning="GAisRunning" />
         <!-- <Slider :label="filter1" v-model="filterA" />
         <Slider :label="filter2" v-model="filterB" /> -->
-        <button @click="evaluate_design" style="margin: 5px;">Evaluate Design</button>
-        <DragDrop ref="DragDrop" />
+        <!-- <button @click="evaluate_design" style="margin: 5px;">Evaluate Design</button>
+        <DragDrop ref="DragDrop" /> -->
+        <ChipletMenu ref="ChipletMenu" @evaluate-chiplet="evaluate_design_input" />
       </div>
 
       <!-- Middle Column (Plot) -->
@@ -47,6 +48,7 @@ import Slider from "./components/Slider.vue";
 import Plot from "./components/Plot.vue";
 import Chat from "./components/Chat.vue";
 import DragDrop from "./components/DragDrop.vue";
+import ChipletMenu from "./components/ChipletMenu.vue";
 import "./assets/styles.css";
 
 export default {
@@ -56,6 +58,7 @@ export default {
     Plot,
     Chat,
     DragDrop,
+    ChipletMenu,
   },
   data() {
     return {
@@ -142,6 +145,15 @@ export default {
     async evaluate_design() {
       try {
         const eval_data = await this.$refs.DragDrop.evaluate_point();
+        console.log("Design evaluation confirmed.");
+        this.$refs.Plot.updateChartData(eval_data);
+      } catch (error) {
+        console.error("Error confirming design evaluation:", error);
+      }
+    },
+    async evaluate_design_input() {
+      try {
+        const eval_data = await this.$refs.ChipletMenu.evaluate_point_input();
         console.log("Design evaluation confirmed.");
         this.$refs.Plot.updateChartData(eval_data);
       } catch (error) {
