@@ -114,6 +114,15 @@ export default {
       const sparse = dataPoint.sparse
       const conv = dataPoint.conv
 
+      // Open the chat if it's not already open
+      
+      if (!this.chatOpen) {
+        this.chatOpen = true;
+        // Wait for Chat component to be mounted and $refs.Chat to exist
+        await this.$nextTick();
+      }
+      this.$refs.Chat.gettingData = true
+
       await axios.get('http://127.0.0.1:8000/api/add-info/',
         {
           params: {
@@ -126,16 +135,10 @@ export default {
           }
         }
       );
-      // UPDATE THIS TO SEND A MESSAGE
+
       const message = `I have received context on this design! I am ready to answer questions about it.`;
 
-      // Open the chat if it's not already open
-      if (!this.chatOpen) {
-        this.chatOpen = true;
-        // Wait for Chat component to be mounted and $refs.Chat to exist
-        await this.$nextTick();
-      }
-
+      this.$refs.Chat.gettingData = false
       this.$refs.Chat.chatMessage = message;
       this.$refs.Chat.assistantMessage();
 

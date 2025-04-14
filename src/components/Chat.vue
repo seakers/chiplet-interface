@@ -13,6 +13,7 @@
                 </div>
                 <!-- Show loading when waiting for a response -->
                 <div v-if="loading" class="chat-message chat">Typing...</div>
+                <div v-if="gettingData" class="chat-message chat">Loading Data...</div>
             </div>
 
             <div id="chat-input">
@@ -47,6 +48,7 @@ export default {
             chatMessage: "",
             messages: [],
             loading: false, // Shows loading while waiting for response
+            gettingData: false, // Shows getting data while waiting to get the embedding for data points
             showOptions: false,
         };
     },
