@@ -23,7 +23,6 @@
                     <button @click="sendMessage">Send</button>
                     <button @click="showOptions = !showOptions">Model Options</button>
                     <ul v-if="showOptions" class="dropdown-options">
-                        <li @click="dropdownSelectOption('Hello')">Say Hello AAAAAAAAAAAA</li>
                         <li @click="dropdownSelectOption('Help')">Ask for Help</li>
                         <li @click="dropdownSelectOption('Clear')">Clear Chat</li>
                     </ul>

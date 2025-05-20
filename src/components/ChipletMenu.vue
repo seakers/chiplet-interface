@@ -9,6 +9,15 @@
             </label>
             <input type="number" :id="key" v-model.number="inputs[key]" min="0" max="12" />
         </div>
+        <div style="margin-top: 1rem;">
+            <label for="chiplet-type">Trace</label><br>
+            <select id="chiplet-type" v-model="selectedTrace">
+                <!-- <option disabled value="">Select a chiplet</option> -->
+                <option v-for="item in traceOptions" :key="item" :value="item">
+                    {{ item }}
+                </option>
+            </select>
+        </div>
         <button :disabled="!isSumValid || isRunning" @click="emitDesign">Evaluate Design</button>
         <p v-if="!isSumValid" class="warning">Total must sum to 12, there are {{ total }}</p>
         <div :style="{ paddingTop: isSumValid ? '10px' : '0' }" class="layout-box">
@@ -28,19 +37,21 @@ export default {
     data() {
         return {
             inputs: {
-                Attention: 0,
                 GPU: 0,
+                Attention: 0,
                 Sparse: 0,
                 Convolution: 0,
             },
+            selectedTrace: "",
+            traceOptions: ["gpt-j-65536-weighted", "gpt-j-1024-weighted", "sd-test", "ogbn-products-test", "resnet50-test"],
             isRunning: false,
             chipletColors: [
                 "#9e9e9e", "#9e9e9e", "#9e9e9e", "#9e9e9e", "#9e9e9e", "#9e9e9e",
                 "#9e9e9e", "#9e9e9e", "#9e9e9e", "#9e9e9e", "#9e9e9e", "#9e9e9e"
             ],
             colorMap: {
-                Attention: "#f8cd42",
                 GPU: "#8fbf80",
+                Attention: "#f8cd42",
                 Sparse: "#70adcd",
                 Convolution: "#f7a42f",
                 Default: "#9e9e9e"
@@ -93,7 +104,7 @@ export default {
                 const response = await axios.get("http://127.0.0.1:8000/api/evaluate-point-inputs/", {
                     params: {
                         ...this.inputs,
-                        trace: "gpt-j-65536-weighted",
+                        trace: this.selectedTrace,
                     }
                 });
                 console.log("EVAL DATA")
