@@ -10,27 +10,17 @@
           <Plot ref="Plot" @point-message="SendMessageWithPoint" />
         </div>
         <div class="windows-row">
-          <div v-if="openWindows.ga" class="floating-window">
-            <div class="window-header">
-              <span>Genetic Algorithm</span>
-              <button class="close-btn" @click="openWindows.ga = false">×</button>
-            </div>
-            <RunGA :isRunning="GAisRunning" />
-          </div>
-          <div v-if="openWindows.chiplet" class="floating-window">
-            <div class="window-header">
-              <span>Chiplet Menu</span>
-              <button class="close-btn" @click="openWindows.chiplet = false">×</button>
-            </div>
-            <ChipletMenu />
-          </div>
-          <div v-if="openWindows['data-mining']" class="floating-window">
-            <div class="window-header">
-              <span>Data Mining</span>
-              <button class="close-btn" @click="openWindows['data-mining'] = false">×</button>
-            </div>
-            <DataMining />
-          </div>
+          <Draggable v-model="windowOrder" class="windows-row" :options="{animation:150, direction:'horizontal'}">
+            <template #item="{element:winKey}">
+              <div v-if="openWindows[winKey]" class="floating-window">
+                <div class="window-header">
+                  <span>{{ windowTitles[winKey] }}</span>
+                  <button class="close-btn" @click="openWindows[winKey] = false">×</button>
+                </div>
+                <component :is="windowComponents[winKey]" />
+              </div>
+            </template>
+          </Draggable>
         </div>
         <button id="chat-toggle" @click="toggleChat">
           {{ chatOpen ? "Close Chat" : "Open Chat" }}
@@ -52,6 +42,7 @@ import Chat from "./components/Chat.vue";
 import DragDrop from "./components/DragDrop.vue";
 import ChipletMenu from "./components/ChipletMenu.vue";
 import DataMining from "./components/DataMining.vue";
+import Draggable from 'vuedraggable'
 import "./assets/styles.css";
 
 export default {
@@ -64,6 +55,7 @@ export default {
     DragDrop,
     ChipletMenu,
     DataMining,
+    Draggable
   },
   data() {
     return {
@@ -82,7 +74,24 @@ export default {
         chiplet: false,
         'data-mining': false,
       },
+      windowOrder: ['ga', 'chiplet', 'data-mining'],
+      windowTitles: {
+        ga: 'Genetic Algorithm',
+        chiplet: 'Chiplet Menu',
+        'data-mining': 'Data Mining'
+      },
+      windowComponents: {
+        ga: 'RunGA',
+        chiplet: 'ChipletMenu',
+        'data-mining': 'DataMining'
+      },
     };
+  },
+  computed: {
+    openWindowList() {
+      // Return an array of open window keys in the current order
+      return this.windowOrder.filter(key => this.openWindows[key])
+    }
   },
   methods: {
     handleSidebarSelect(selected) {
