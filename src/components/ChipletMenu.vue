@@ -1,5 +1,6 @@
 <template>
     <div class="chiplet-menu">
+        <button @click="$emit('close')" style="float:right;">Close</button>
         <h3>Chiplet Menu</h3>
         <div class="input-group" v-for="(value, key) in inputs" :key="key">
             <!-- <label :for="key">{{ key }}</label> -->
@@ -23,6 +24,7 @@
         <div :style="{ paddingTop: isSumValid ? '10px' : '0' }" class="layout-box">
             <ChipletLayout :chipletColors="chipletColors" />
         </div>
+        <div style="clear:both;"></div>
     </div>
 </template>
 

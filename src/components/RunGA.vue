@@ -1,5 +1,6 @@
 <template>
     <div>
+        <button @click="$emit('close')" style="float:right;">Close</button>
         <div style="display: flex; gap: 1rem; align-items: flex-start;">
             <div>
                 <label for="population">Population</label><br>
@@ -20,6 +21,7 @@
             </select>
         </div>
         <button @click="$emit('run-ga')" :disabled="isRunning" style="margin-top: 1rem;">Run GA</button>
+        <div style="clear:both;"></div>
     </div>
 </template>
 

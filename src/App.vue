@@ -5,28 +5,24 @@
     </div>
 
     <div id="main-container">
-      <!-- Left Column (Sliders) -->
-      <div id="left-column">
-        <!-- <button id="run-ga" @click="RunGAMain">
-          Run GA
-        </button> -->
-        <RunGA ref="RunGA" @run-ga="RunGAMain" :isRunning="GAisRunning" />
-        <!-- <Slider :label="filter1" v-model="filterA" />
-        <Slider :label="filter2" v-model="filterB" /> -->
-        <!-- <button @click="evaluate_design" style="margin: 5px;">Evaluate Design</button>
-        <DragDrop ref="DragDrop" /> -->
-        <ChipletMenu ref="ChipletMenu" @evaluate-chiplet="evaluate_design_input" />
-      </div>
+      <!-- Sidebar -->
+      <Sidebar @select="handleSidebarSelect" />
 
-      <!-- Middle Column (Plot) -->
-      <div id="middle-column">
+      <!-- Main Content (rest of your UI) -->
+      <div id="main-content">
+        <!-- You can move the rest of your columns here, and later show/hide based on sidebar selection -->
         <div id="plot-container">
           <Plot ref="Plot" @point-message="SendMessageWithPoint" />
         </div>
-      </div>
-
-      <!-- Right Column (Chat) -->
-      <div id="right-column">
+        <div v-if="selectedWindow === 'ga'" class="floating-window">
+          <RunGA @close="selectedWindow = null" :isRunning="GAisRunning" />
+        </div>
+        <div v-if="selectedWindow === 'chiplet'" class="floating-window">
+          <ChipletMenu @close="selectedWindow = null" />
+        </div>
+        <div v-if="selectedWindow === 'data-mining'" class="floating-window">
+          <DataMining @close="selectedWindow = null" />
+        </div>
         <button id="chat-toggle" @click="toggleChat">
           {{ chatOpen ? "Close Chat" : "Open Chat" }}
         </button>
@@ -43,22 +39,26 @@
 
 <script>
 import axios from "axios";
+import Sidebar from './components/Sidebar.vue';
 import RunGA from './components/RunGA.vue';
 import Slider from "./components/Slider.vue";
 import Plot from "./components/Plot.vue";
 import Chat from "./components/Chat.vue";
 import DragDrop from "./components/DragDrop.vue";
 import ChipletMenu from "./components/ChipletMenu.vue";
+import DataMining from "./components/DataMining.vue";
 import "./assets/styles.css";
 
 export default {
   components: {
+    Sidebar,
     RunGA,
     Slider,
     Plot,
     Chat,
     DragDrop,
     ChipletMenu,
+    DataMining,
   },
   data() {
     return {
@@ -72,9 +72,13 @@ export default {
       filter2: "W3d (ns)",
       chatOpen: false, // Chat visibility state
       GAisRunning: false,
+      selectedWindow: null,
     };
   },
   methods: {
+    handleSidebarSelect(selected) {
+      this.selectedWindow = selected;
+    },
     submit() {
       this.status = "Processing... Results will be updated soon!";
       axios
