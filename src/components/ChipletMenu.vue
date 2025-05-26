@@ -1,7 +1,5 @@
 <template>
-    <div class="chiplet-menu">
-        <button @click="$emit('close')" style="float:right;">Close</button>
-        <h3>Chiplet Menu</h3>
+    <div class="chiplet-menu-content">
         <div class="input-group" v-for="(value, key) in inputs" :key="key">
             <!-- <label :for="key">{{ key }}</label> -->
             <label :for="key">
@@ -123,12 +121,13 @@ export default {
 </script>
 
 <style scoped>
-.chiplet-menu {
-    border: 3px solid var(--primary-color);
-    border-radius: 10px;
-    padding: 20px;
-    width: 250px;
-    margin-top: 20px;
+.chiplet-menu-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1.5rem 0.5rem 1rem 0.5rem;
+    max-width: 340px;
+    margin: 0 auto;
 }
 
 .input-group {
@@ -136,6 +135,14 @@ export default {
     flex-direction: row;
     margin-bottom: 10px;
     justify-content: space-between;
+    width: 100%;
+    max-width: 260px;
+}
+
+.layout-box {
+    width: 100%;
+    max-width: 260px;
+    margin-top: 1rem;
 }
 
 .color-box {

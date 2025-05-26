@@ -2,11 +2,22 @@
   <div class="sidebar">
     <div class="sidebar-title">Design Menu</div>
     <div class="sidebar-divider"></div>
-    <button @click="$emit('select', 'ga')">Genetic Algorithm</button>
-    <button @click="$emit('select', 'chiplet')">Chiplet Menu</button>
-    <button @click="$emit('select', 'data-mining')">Data Mining</button>
+    <button :class="{ active: openWindows && openWindows.ga }" @click="$emit('select', 'ga')">Genetic Algorithm</button>
+    <button :class="{ active: openWindows && openWindows.chiplet }" @click="$emit('select', 'chiplet')">Chiplet Menu</button>
+    <button :class="{ active: openWindows && openWindows['data-mining'] }" @click="$emit('select', 'data-mining')">Data Mining</button>
   </div>
 </template>
+
+<script>
+export default {
+  props: {
+    openWindows: {
+      type: Object,
+      default: () => ({})
+    }
+  }
+}
+</script>
 
 <style scoped>
 .sidebar {
@@ -42,9 +53,14 @@
   font-size: 1rem;
   cursor: pointer;
   margin-bottom: 0.5rem;
-  transition: background 0.2s;
+  transition: background 0.2s, box-shadow 0.2s;
 }
 .sidebar button:hover {
   background: #2356b8;
+}
+.sidebar button.active {
+  background: #1746a0;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.10);
 }
 </style> 

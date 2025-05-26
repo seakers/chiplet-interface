@@ -1,37 +1,42 @@
 <template>
   <div id="app">
-    <div id="title-div">
-      <h1>{{ title }}</h1>
-    </div>
-
-    <div id="main-container">
-      <!-- Sidebar -->
-      <Sidebar @select="handleSidebarSelect" />
-
-      <!-- Main Content (rest of your UI) -->
-      <div id="main-content">
-        <!-- You can move the rest of your columns here, and later show/hide based on sidebar selection -->
-        <div id="plot-container">
+    <header class="app-header">
+      <h1>Chiplet Design Analysis</h1>
+    </header>
+    <div class="app-layout">
+      <Sidebar :openWindows="openWindows" @select="handleSidebarSelect" />
+      <div class="main-content">
+        <div class="plot-container">
           <Plot ref="Plot" @point-message="SendMessageWithPoint" />
         </div>
-        <div v-if="selectedWindow === 'ga'" class="floating-window">
-          <RunGA @close="selectedWindow = null" :isRunning="GAisRunning" />
-        </div>
-        <div v-if="selectedWindow === 'chiplet'" class="floating-window">
-          <ChipletMenu @close="selectedWindow = null" />
-        </div>
-        <div v-if="selectedWindow === 'data-mining'" class="floating-window">
-          <DataMining @close="selectedWindow = null" />
+        <div class="windows-row">
+          <div v-if="openWindows.ga" class="floating-window">
+            <div class="window-header">
+              <span>Genetic Algorithm</span>
+              <button class="close-btn" @click="openWindows.ga = false">×</button>
+            </div>
+            <RunGA :isRunning="GAisRunning" />
+          </div>
+          <div v-if="openWindows.chiplet" class="floating-window">
+            <div class="window-header">
+              <span>Chiplet Menu</span>
+              <button class="close-btn" @click="openWindows.chiplet = false">×</button>
+            </div>
+            <ChipletMenu />
+          </div>
+          <div v-if="openWindows['data-mining']" class="floating-window">
+            <div class="window-header">
+              <span>Data Mining</span>
+              <button class="close-btn" @click="openWindows['data-mining'] = false">×</button>
+            </div>
+            <DataMining />
+          </div>
         </div>
         <button id="chat-toggle" @click="toggleChat">
           {{ chatOpen ? "Close Chat" : "Open Chat" }}
         </button>
         <Chat v-show="chatOpen" ref="Chat" :chatOpen="chatOpen" @toggle-chat="toggleChat" />
       </div>
-    </div>
-    <div id="second-container">
-      <!-- <button @click="evaluate_design" style="margin: 5px;">Evaluate Design</button>
-      <DragDrop ref="DragDrop" /> -->
     </div>
   </div>
 </template>
@@ -72,12 +77,16 @@ export default {
       filter2: "W3d (ns)",
       chatOpen: false, // Chat visibility state
       GAisRunning: false,
-      selectedWindow: null,
+      openWindows: {
+        ga: false,
+        chiplet: false,
+        'data-mining': false,
+      },
     };
   },
   methods: {
     handleSidebarSelect(selected) {
-      this.selectedWindow = selected;
+      this.openWindows[selected] = !this.openWindows[selected];
     },
     submit() {
       this.status = "Processing... Results will be updated soon!";
@@ -172,6 +181,47 @@ export default {
 </script>
 
 <style>
+.app-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  padding: 1rem;
+  text-align: center;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  color: #2c3e50;
+}
+
+.app-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  height: 100vh;
+  width: 100%;
+  position: relative;
+}
+
+.main-content {
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+}
+
+.plot-container {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem;
+  background: white;
+  max-width: 900px;
+  max-height: 600px;
+  margin: 2rem auto 1rem auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+}
+
 /* General App Styling */
 #app {
   font-family: Avenir, Helvetica, Arial, sans-serif;
@@ -277,5 +327,74 @@ export default {
   flex-direction: column;
   gap: 30px;
   width: 20%;
+}
+
+.windows-row {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+  margin: 2rem 0 0 0;
+  margin-left: 2.5rem;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.floating-window {
+  background: #fff;
+  border: 1px solid #e0e6ed;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(44, 62, 80, 0.10);
+  max-width: 420px;
+  min-width: 320px;
+  width: 100%;
+  padding: 0 0 1.5rem 0;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  vertical-align: top;
+  margin-bottom: 2rem;
+  box-sizing: border-box;
+}
+
+.window-header {
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e6ed;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 1.15rem;
+}
+
+.close-btn {
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: #6c757d;
+  padding: 0 0.5rem;
+  line-height: 1;
+}
+
+.close-btn:hover {
+  color: #343a40;
+}
+
+/* Add padding to window content */
+.floating-window > *:not(.window-header) {
+  padding: 1.25rem 1.5rem 0 1.5rem;
+}
+
+@media (max-width: 900px) {
+  .windows-row {
+    flex-direction: column;
+    margin-left: 0;
+    gap: 1rem;
+  }
+  .floating-window {
+    max-width: 98vw;
+    min-width: 0;
+  }
 }
 </style>

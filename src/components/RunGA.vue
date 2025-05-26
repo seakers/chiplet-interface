@@ -1,27 +1,29 @@
 <template>
     <div>
-        <button @click="$emit('close')" style="float:right;">Close</button>
-        <div style="display: flex; gap: 1rem; align-items: flex-start;">
-            <div>
-                <label for="population">Population</label><br>
-                <input id="population" type="number" v-model.number="pop_size" placeholder="Example: 10">
+        <form class="ga-form">
+            <div class="ga-row">
+                <div class="ga-field">
+                    <label for="population">Population</label>
+                    <input id="population" type="number" v-model.number="pop_size" placeholder="Example: 10">
+                </div>
+                <div class="ga-field">
+                    <label for="generations">Generations</label>
+                    <input id="generations" type="number" v-model.number="n_gen" placeholder="Example: 5">
+                </div>
             </div>
-            <div>
-                <label for="generations">Generations</label><br>
-                <input id="generations" type="number" v-model.number="n_gen" placeholder="Example: 5">
+            <div class="ga-section ga-trace-section">
+                <label for="chiplet-type" class="ga-trace-label">Trace</label>
+                <select id="chiplet-type" v-model="selectedTrace" class="ga-trace-select">
+                    <!-- <option disabled value="">Select a chiplet</option> -->
+                    <option v-for="item in traceOptions" :key="item" :value="item">
+                        {{ item }}
+                    </option>
+                </select>
             </div>
-        </div>
-        <div style="margin-top: 1rem;">
-            <label for="chiplet-type">Trace</label><br>
-            <select id="chiplet-type" v-model="selectedTrace">
-                <!-- <option disabled value="">Select a chiplet</option> -->
-                <option v-for="item in traceOptions" :key="item" :value="item">
-                    {{ item }}
-                </option>
-            </select>
-        </div>
-        <button @click="$emit('run-ga')" :disabled="isRunning" style="margin-top: 1rem;">Run GA</button>
-        <div style="clear:both;"></div>
+            <div class="ga-section">
+                <button @click.prevent="$emit('run-ga')" :disabled="isRunning" class="ga-btn">Run GA</button>
+            </div>
+        </form>
     </div>
 </template>
 
@@ -66,3 +68,86 @@ export default {
 
 };
 </script>
+
+<style scoped>
+.ga-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    align-items: center;
+}
+.ga-row {
+    display: flex;
+    gap: 1rem;
+    width: 100%;
+    justify-content: center;
+}
+.ga-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    max-width: 140px;
+    width: 100%;
+}
+.ga-section {
+    margin-top: 0.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    align-items: center;
+    width: 100%;
+}
+.ga-trace-section {
+    align-items: center;
+    width: 100%;
+}
+.ga-trace-label {
+    text-align: center;
+    font-weight: 500;
+    margin-bottom: 0.2rem;
+    width: 100%;
+}
+.ga-trace-select {
+    width: 100%;
+    max-width: 290px;
+    min-width: 140px;
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #b3c6e0;
+    border-radius: 4px;
+    font-size: 1rem;
+    margin-top: 0.2rem;
+}
+.ga-btn {
+    width: 100%;
+    max-width: 160px;
+    padding: 0.6rem 0;
+    border-radius: 5px;
+    border: 1px solid #b3c6e0;
+    background: #337aff;
+    color: white;
+    font-weight: 700;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: background 0.2s;
+    margin-top: 1rem;
+}
+.ga-btn:disabled {
+    background: #b3c6e0;
+    cursor: not-allowed;
+}
+.ga-btn:hover:enabled {
+    background: #2356b8;
+}
+input {
+    padding: 0.4rem 0.7rem;
+    border: 1px solid #b3c6e0;
+    border-radius: 4px;
+    font-size: 1rem;
+    width: 100%;
+    max-width: 140px;
+}
+label {
+    font-weight: 500;
+    margin-bottom: 0.2rem;
+}
+</style>
