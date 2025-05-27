@@ -59,8 +59,15 @@ const createChart = () => {
                     callbacks: {
                         label: (context) => {
                             const dataPoint = context.raw;
-                            // Customize tooltip to show extra information
-                            return `X: ${dataPoint.x}, Y: ${dataPoint.y}, GPU: ${dataPoint.gpu}, Attn: ${dataPoint.attn}, Sparse: ${dataPoint.sparse}, Conv: ${dataPoint.conv}`;
+                            const xLabel = selectedXAxis.value || 'X';
+                            const yLabel = selectedYAxis.value || 'Y';
+                            const xVal = (typeof dataPoint.x === 'number') ? dataPoint.x.toFixed(2) : dataPoint.x;
+                            const yVal = (typeof dataPoint.y === 'number') ? dataPoint.y.toFixed(2) : dataPoint.y;
+                            // First line: axis names and values
+                            const line1 = `${xLabel}: ${xVal}, ${yLabel}: ${yVal}`;
+                            // Second line: chiplet types and numbers
+                            const line2 = `GPU: ${dataPoint.gpu}, Attn: ${dataPoint.attn}, Sparse: ${dataPoint.sparse}, Conv: ${dataPoint.conv}`;
+                            return [line1, line2]; // Return as array for multi-line tooltip
                         },
                     },
                 },
