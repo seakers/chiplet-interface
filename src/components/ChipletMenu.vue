@@ -17,7 +17,7 @@
                 </option>
             </select>
         </div>
-        <button :disabled="!isSumValid || isRunning" @click="emitDesign">Evaluate Design</button>
+        <button :disabled="!isSumValid || isRunning" @click="emitDesign" class="minimal-btn">Evaluate Design</button>
         <p v-if="!isSumValid" class="warning">Total must sum to 12, there are {{ total }}</p>
         <div :style="{ paddingTop: isSumValid ? '10px' : '0' }" class="layout-box">
             <ChipletLayout :chipletColors="chipletColors" />
@@ -45,10 +45,6 @@ export default {
             selectedTrace: "",
             traceOptions: ["gpt-j-65536-weighted", "gpt-j-1024-weighted", "sd-test", "ogbn-products-test", "resnet50-test"],
             isRunning: false,
-            chipletColors: [
-                "#9e9e9e", "#9e9e9e", "#9e9e9e", "#9e9e9e", "#9e9e9e", "#9e9e9e",
-                "#9e9e9e", "#9e9e9e", "#9e9e9e", "#9e9e9e", "#9e9e9e", "#9e9e9e"
-            ],
             colorMap: {
                 GPU: "#8fbf80",
                 Attention: "#f8cd42",

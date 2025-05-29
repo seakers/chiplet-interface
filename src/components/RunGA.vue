@@ -21,7 +21,11 @@
                 </select>
             </div>
             <div class="ga-section">
-                <button @click.prevent="$emit('run-ga')" :disabled="isRunning" class="ga-btn">Run GA</button>
+                <button 
+                  @click.prevent="handleRunGA"
+                  :disabled="isRunning"
+                  :class="['minimal-btn', { 'clicked': buttonClicked }]"
+                >Run GA</button>
             </div>
         </form>
     </div>
@@ -45,6 +49,7 @@ export default {
             sumResult: null,
             selectedTrace: "",
             traceOptions: ["gpt-j-65536-weighted", "gpt-j-1024-weighted", "sd-test", "ogbn-products-test", "resnet50-test"],
+            buttonClicked: false,
         };
     },
     methods: {
@@ -63,6 +68,13 @@ export default {
             } catch (error) {
                 console.error("Error fetching chart data:", error);
             }
+        },
+        handleRunGA() {
+            this.buttonClicked = true;
+            this.$emit('run-ga');
+            setTimeout(() => {
+                this.buttonClicked = false;
+            }, 1000);
         }
     },
 
@@ -149,5 +161,10 @@ input {
 label {
     font-weight: 500;
     margin-bottom: 0.2rem;
+}
+.minimal-btn.clicked {
+    background: #ff9800 !important;
+    color: #fff !important;
+    border-color: #ff9800 !important;
 }
 </style>

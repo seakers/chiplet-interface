@@ -7,17 +7,33 @@
       <Sidebar :openWindows="openWindows" @select="handleSidebarSelect" />
       <div class="main-content">
         <div class="plot-container">
-          <Plot ref="Plot" @point-message="SendMessageWithPoint" />
+          <Plot ref="Plot" @point-message="SendMessageWithPoint" @open-modify-design="handleOpenModifyDesign" />
         </div>
         <div class="windows-row">
-          <Draggable v-model="windowOrder" class="windows-row" :options="{animation:150, direction:'horizontal'}">
-            <template #item="{element:winKey}">
-              <div v-if="openWindows[winKey]" class="floating-window">
+          <Draggable
+            v-model="windowOrder"
+            class="windows-row"
+            :options="{animation:150, direction:'horizontal'}"
+            :itemKey="element"
+          >
+            <template #item="{element}">
+              <div v-if="openWindows[element]" class="floating-window">
                 <div class="window-header">
-                  <span>{{ windowTitles[winKey] }}</span>
-                  <button class="close-btn" @click="openWindows[winKey] = false">×</button>
+                  <span>{{ windowTitles[element] }}</span>
+                  <button class="close-btn" @click="openWindows[element] = false">×</button>
                 </div>
-                <component :is="windowComponents[winKey]" />
+                <component
+                  v-if="element === 'ga'"
+                  :is="windowComponents[element]"
+                  ref="RunGA"
+                  v-on="{ 'run-ga': RunGAMain }"
+                />
+                <component
+                  v-else
+                  :is="windowComponents[element]"
+                  v-bind="element === 'modify-design' ? modifyDesignProps : {}"
+                  v-on="element === 'modify-design' ? { 'evaluate-modified-design': handleEvaluateModifiedDesign } : {}"
+                />
               </div>
             </template>
           </Draggable>
@@ -43,6 +59,7 @@ import DragDrop from "./components/DragDrop.vue";
 import ChipletMenu from "./components/ChipletMenu.vue";
 import DataMining from "./components/DataMining.vue";
 import Draggable from 'vuedraggable'
+import ModifyDesignMenu from './components/ModifyDesignMenu.vue';
 import "./assets/styles.css";
 
 export default {
@@ -55,7 +72,8 @@ export default {
     DragDrop,
     ChipletMenu,
     DataMining,
-    Draggable
+    Draggable,
+    ModifyDesignMenu
   },
   data() {
     return {
@@ -73,18 +91,22 @@ export default {
         ga: false,
         chiplet: false,
         'data-mining': false,
+        'modify-design': false,
       },
       windowOrder: ['ga', 'chiplet', 'data-mining'],
       windowTitles: {
         ga: 'Genetic Algorithm',
         chiplet: 'Chiplet Menu',
-        'data-mining': 'Data Mining'
+        'data-mining': 'Data Mining',
+        'modify-design': 'Modify Design',
       },
       windowComponents: {
         ga: 'RunGA',
         chiplet: 'ChipletMenu',
-        'data-mining': 'DataMining'
+        'data-mining': 'DataMining',
+        'modify-design': 'ModifyDesignMenu',
       },
+      modifyDesignProps: null,
     };
   },
   computed: {
@@ -183,6 +205,56 @@ export default {
         this.$refs.Plot.updateChartData(eval_data);
       } catch (error) {
         console.error("Error confirming design evaluation:", error);
+      }
+    },
+    handleOpenModifyDesign(data) {
+      // Only one ModifyDesignMenu at a time
+      this.openWindows['modify-design'] = true;
+      this.modifyDesignProps = data;
+      // Ensure it's the first window
+      if (!this.windowOrder.includes('modify-design')) {
+        this.windowOrder = ['modify-design', ...this.windowOrder];
+      } else {
+        this.windowOrder = ['modify-design', ...this.windowOrder.filter(w => w !== 'modify-design')];
+      }
+    },
+    async handleEvaluateModifiedDesign(design) {
+      try {
+        // Call backend to get evaluated x/y for the new design
+        const response = await axios.get("http://127.0.0.1:8000/api/evaluate-point-inputs/", {
+          params: {
+            GPU: design.GPU,
+            Attention: design.Attention,
+            Sparse: design.Sparse,
+            Convolution: design.Convolution,
+            trace: design.trace,
+          }
+        });
+        // Assume response.data.data is an array with one point, or a single point object
+        const evaluated = Array.isArray(response.data.data) ? response.data.data[0] : response.data.data;
+        const newPoint = {
+          x: evaluated.x,
+          y: evaluated.y,
+          gpu: design.GPU,
+          attn: design.Attention,
+          sparse: design.Sparse,
+          conv: design.Convolution,
+          trace: design.trace,
+          xLabel: design.xLabel,
+          yLabel: design.yLabel,
+        };
+        const currentData = this.$refs.Plot.getChartData();
+        const newData = [...currentData, newPoint];
+        this.$refs.Plot.updateChartData(newData);
+        // Keep the Modify Design window open and update its X and Y values
+        this.modifyDesignProps = {
+          ...this.modifyDesignProps,
+          x: evaluated.x,
+          y: evaluated.y,
+        };
+        // Do NOT show a popup for the new point
+      } catch (error) {
+        console.error("Error evaluating modified design:", error);
       }
     },
   },
