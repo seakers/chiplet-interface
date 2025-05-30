@@ -8,7 +8,7 @@
         <h1>Chiplet Design Analysis</h1>
       </header>
       <div class="plot-container">
-        <Plot ref="Plot" @point-message="SendMessageWithPoint" @open-modify-design="handleOpenModifyDesign" />
+        <Plot ref="Plot" :isEvaluatingDesign="isEvaluatingDesign" @point-message="SendMessageWithPoint" @open-modify-design="handleOpenModifyDesign" />
       </div>
       <div class="windows-row">
         <Draggable
@@ -21,8 +21,8 @@
             <div v-if="openWindows[element]" class="floating-window">
               <div class="window-header">
                 <span>{{ windowTitles[element] }}</span>
-                <button class="close-btn" @click="openWindows[element] = false">×</button>
               </div>
+              <button class="close-btn" @click="openWindows[element] = false">×</button>
               <component
                 v-if="element === 'ga'"
                 :is="windowComponents[element]"
@@ -33,7 +33,7 @@
                 v-else
                 :is="windowComponents[element]"
                 v-bind="element === 'modify-design' ? modifyDesignProps : {}"
-                v-on="element === 'modify-design' ? { 'evaluate-modified-design': handleEvaluateModifiedDesign } : {}"
+                v-on="element === 'modify-design' ? { 'evaluate-modified-design': handleEvaluateModifiedDesign, 'send-to-chat': handleSendToChat } : {}"
               />
             </div>
           </template>
@@ -87,6 +87,7 @@ export default {
       filter1: "Latency (ns)",
       filter2: "W3d (ns)",
       GAisRunning: false,
+      isEvaluatingDesign: false,
       openWindows: {
         ga: false,
         chiplet: false,
@@ -220,6 +221,7 @@ export default {
       }
     },
     async handleEvaluateModifiedDesign(design) {
+      this.isEvaluatingDesign = true;
       try {
         // Call backend to get evaluated x/y for the new design
         const response = await axios.get("http://127.0.0.1:8000/api/evaluate-point-inputs/", {
@@ -231,9 +233,10 @@ export default {
             trace: design.trace,
           }
         });
-        // Assume response.data.data is an array with one point, or a single point object
+        // Only update the plot after backend response
         const evaluated = Array.isArray(response.data.data) ? response.data.data[0] : response.data.data;
-        const newPoint = {
+        const currentData = this.$refs.Plot.getChartData();
+        const newData = [...currentData, {
           x: evaluated.x,
           y: evaluated.y,
           gpu: design.GPU,
@@ -243,9 +246,7 @@ export default {
           trace: design.trace,
           xLabel: design.xLabel,
           yLabel: design.yLabel,
-        };
-        const currentData = this.$refs.Plot.getChartData();
-        const newData = [...currentData, newPoint];
+        }];
         this.$refs.Plot.updateChartData(newData);
         // Keep the Modify Design window open and update its X and Y values
         this.modifyDesignProps = {
@@ -253,10 +254,23 @@ export default {
           x: evaluated.x,
           y: evaluated.y,
         };
-        // Do NOT show a popup for the new point
       } catch (error) {
         console.error("Error evaluating modified design:", error);
+      } finally {
+        this.isEvaluatingDesign = false;
       }
+    },
+    handleSendToChat(design) {
+      // Use the same logic as SendMessageWithPoint
+      this.SendMessageWithPoint({
+        x: design.x,
+        y: design.y,
+        gpu: design.GPU,
+        attn: design.Attention,
+        sparse: design.Sparse,
+        conv: design.Convolution,
+        trace: design.trace
+      });
     },
   },
 };
@@ -345,6 +359,7 @@ export default {
   vertical-align: top;
   margin-bottom: 1rem;
   box-sizing: border-box;
+  position: relative;
 }
 
 .chat-panel {
@@ -559,7 +574,20 @@ export default {
 }
 
 .close-btn {
-  display: none;
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: #6c757d;
+  padding: 0 0.5rem;
+  line-height: 1;
+}
+
+.close-btn:hover {
+  color: #343a40;
 }
 
 .window {

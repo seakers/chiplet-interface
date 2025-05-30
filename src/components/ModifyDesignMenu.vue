@@ -1,10 +1,15 @@
 <template>
   <div class="chiplet-menu-content">
-    <h3>Modify Design</h3>
+    <div class="window-header">
+      <span>Selected Design</span>
+      <button class="close-btn" @click="$emit('close')">×</button>
+    </div>
     <div class="selected-point-info">
       <p><strong>{{ xLabel }}:</strong> {{ x !== undefined ? Number(x).toFixed(2) : '' }}</p>
       <p><strong>{{ yLabel }}:</strong> {{ y !== undefined ? Number(y).toFixed(2) : '' }}</p>
+      <button class="point-button" @click="sendToChat">Send to chat</button>
     </div>
+    <h3>Modify Design</h3>
     <div class="input-group" v-for="(value, key) in inputs" :key="key">
       <label :for="key">
         <span class="color-box" :style="{ backgroundColor: colorMap[key] }"></span>
@@ -76,6 +81,16 @@ export default {
         trace: this.selectedTrace
       });
     },
+    sendToChat() {
+      this.$emit('send-to-chat', {
+        x: this.x,
+        y: this.y,
+        xLabel: this.xLabel,
+        yLabel: this.yLabel,
+        ...this.inputs,
+        trace: this.selectedTrace
+      });
+    }
   },
 };
 </script>
@@ -88,6 +103,52 @@ export default {
   padding: 1.5rem 0.5rem 1rem 0.5rem;
   max-width: 340px;
   margin: 0 auto;
+  position: relative;
+}
+.window-header {
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e6ed;
+  padding: 1rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+  font-size: 1.15rem;
+  width: 100%;
+  position: relative;
+}
+.close-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  font-size: 1.25rem;
+  cursor: pointer;
+  color: #6c757d;
+  padding: 0 0.5rem;
+  line-height: 1;
+}
+.close-btn:hover {
+  color: #343a40;
+}
+.selected-point-info {
+  margin-bottom: 1rem;
+  text-align: center;
+}
+.point-button {
+  margin: 10px 0 0 0;
+  padding: 8px 16px;
+  background: var(--primary-color);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.point-button:hover {
+  background: #2356b8;
 }
 .input-group {
   display: flex;
@@ -125,9 +186,5 @@ export default {
 .minimal-btn:disabled {
   background: #b3c6e0;
   cursor: not-allowed;
-}
-.selected-point-info {
-  margin-bottom: 1rem;
-  text-align: center;
 }
 </style> 

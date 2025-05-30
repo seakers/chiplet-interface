@@ -16,6 +16,13 @@ const selectedPoint = ref(null);
 const pointDropdownRef = ref(null);
 const emit = defineEmits(["point-message", "open-modify-design"]);
 
+const props = defineProps({
+  isEvaluatingDesign: {
+    type: Boolean,
+    default: false
+  }
+});
+
 const availableAxes = ref(["Total time (ms)", "Total Energy (mJ)", "Temperature (K)", "Latency (μs)"]); // etc.
 const selectedXAxis = ref("Total time (ms)");
 const selectedYAxis = ref("Total Energy (mJ)");
@@ -100,9 +107,18 @@ const createChart = () => {
                     dropdownX.value = event.clientX - canvasPosition.left;
                     dropdownY.value = event.clientY - canvasPosition.top;
 
-                    // Include all data point properties in the selectedPoint
-                    selectedPoint.value = { ...dataPoint };
-                    showDropdown.value = true;
+                    // Emit open-modify-design immediately
+                    emit('open-modify-design', {
+                        initialGPU: dataPoint.gpu ?? 0,
+                        initialAttention: dataPoint.attn ?? 0,
+                        initialSparse: dataPoint.sparse ?? 0,
+                        initialConvolution: dataPoint.conv ?? 0,
+                        initialTrace: dataPoint.trace ?? "",
+                        x: dataPoint.x,
+                        y: dataPoint.y,
+                        xLabel: selectedXAxis.value,
+                        yLabel: selectedYAxis.value,
+                    });
                 } else {
                     showDropdown.value = false;
                 }
@@ -284,6 +300,10 @@ const handleEvaluateModifiedDesign = async (design) => {
 <template>
     <div class="chart-container" style="position: relative;">
         <canvas ref="chartRef"></canvas>
+        <div v-if="isEvaluatingDesign" class="plot-loading-overlay">
+            <div class="plot-loading-spinner"></div>
+            <div class="plot-loading-text">Evaluating design...</div>
+        </div>
         <div class="axis_select">
             <label>Y Axis:
                 <select v-model="selectedYAxis">
@@ -296,27 +316,6 @@ const handleEvaluateModifiedDesign = async (design) => {
                     <option v-for="axis in availableAxes" :key="axis" :value="axis">{{ axis }}</option>
                 </select>
             </label>
-        </div>
-    </div>
-
-    <div v-if="showDropdown" ref="pointDropdownRef" class="chart-dropdown global-dropdown"
-        :style="{ top: popupY + 'px', left: popupX + 'px', position: 'absolute', cursor: isDragging ? 'grabbing' : 'grab' }">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; cursor: grab;"
-             @mousedown="startDrag">
-            <p style="font-weight: bold; font-size: 1.3rem; margin-bottom: 0.5rem;">Selected Point</p>
-            <button @click="showDropdown = false" style="background: none; border: none; font-size: 1.5rem; cursor: pointer; margin-left: 1rem;">×</button>
-        </div>
-        <p>{{ selectedXAxis }}: {{ selectedPoint?.x !== undefined ? Number(selectedPoint.x).toFixed(2) : '' }}</p>
-        <p>{{ selectedYAxis }}: {{ selectedPoint?.y !== undefined ? Number(selectedPoint.y).toFixed(2) : '' }}</p>
-        <p style="font-size: 0.85em; color: #555; margin-top: 0.2em;">
-          GPU: {{ selectedPoint?.gpu ?? '' }}, Attention: {{ selectedPoint?.attn ?? '' }}
-        </p>
-        <p style="font-size: 0.85em; color: #555; margin-top: -0.5em;">
-          Sparse: {{ selectedPoint?.sparse ?? '' }}, Convolution: {{ selectedPoint?.conv ?? '' }}
-        </p>
-        <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 1rem;">
-            <button @click="handlePointAction" class="point-button">Send to chat</button>
-            <button @click="handleModifyDesign" class="point-button">Modify design</button>
         </div>
     </div>
 </template>
@@ -386,5 +385,40 @@ const handleEvaluateModifiedDesign = async (design) => {
   min-width: 340px;
   max-width: 95vw;
   position: relative;
+}
+
+.plot-loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.plot-loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid #f3f3f3;
+    border-top: 4px solid #337aff;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 10px;
+}
+
+.plot-loading-text {
+    color: #2c3e50;
+    font-size: 1rem;
+    font-weight: 500;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }
 </style>
