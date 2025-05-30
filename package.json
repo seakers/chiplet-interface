@@ -12,6 +12,7 @@
     "bootstrap-vue-next": "^0.28.2",
     "chart.js": "^4.4.8",
     "core-js": "^3.8.3",
+    "plotly.js-dist": "^3.0.1",
     "postcss": "^8.5.3",
     "v-drag": "^3.0.9",
     "vue": "^3.5.13",

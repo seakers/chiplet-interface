@@ -2,7 +2,6 @@
     <div id="chat-column" v-if="chatOpen">
         <div id="chat-header">
             <h2>Chat (GPT4o-mini)</h2>
-            <button @click="toggleChat">×</button>
         </div>
         <div id="chat-body">
             <p>Welcome to the chat! Ask your questions here.</p>
@@ -119,7 +118,9 @@ export default {
 /* Chat Sidebar */
 #chat-column {
     font-family: var(--primary-font);
-    width: 500px;
+    width: 100%;
+    min-width: 200px;
+    max-width: 320px;
     background: var(--background-color);
     box-shadow: -2px 0 5px rgba(0, 0, 0, 0.1);
     position: fixed;
@@ -135,19 +136,15 @@ export default {
 #chat-header {
     background: var(--primary-color);
     color: white;
-    padding: 15px;
+    padding: 10px;
     display: flex;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
-    height: 80px;
+    height: 56px;
 }
 
 #chat-header button {
-    background: none;
-    border: none;
-    color: white;
-    font-size: 20px;
-    cursor: pointer;
+    display: none;
 }
 
 /* Chat Body */
@@ -223,7 +220,6 @@ export default {
     border-radius: 5px;
     border: none;
     cursor: pointer;
-    position: relative;
 }
 
 .dropdown-wrapper {

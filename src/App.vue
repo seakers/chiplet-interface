@@ -1,49 +1,48 @@
 <template>
-  <div id="app">
-    <header class="app-header">
-      <h1>Chiplet Design Analysis</h1>
-    </header>
-    <div class="app-layout">
+  <div class="app-container">
+    <aside class="sidebar">
       <Sidebar :openWindows="openWindows" @select="handleSidebarSelect" />
-      <div class="main-content">
-        <div class="plot-container">
-          <Plot ref="Plot" @point-message="SendMessageWithPoint" @open-modify-design="handleOpenModifyDesign" />
-        </div>
-        <div class="windows-row">
-          <Draggable
-            v-model="windowOrder"
-            class="windows-row"
-            :options="{animation:150, direction:'horizontal'}"
-            :itemKey="element"
-          >
-            <template #item="{element}">
-              <div v-if="openWindows[element]" class="floating-window">
-                <div class="window-header">
-                  <span>{{ windowTitles[element] }}</span>
-                  <button class="close-btn" @click="openWindows[element] = false">×</button>
-                </div>
-                <component
-                  v-if="element === 'ga'"
-                  :is="windowComponents[element]"
-                  ref="RunGA"
-                  v-on="{ 'run-ga': RunGAMain }"
-                />
-                <component
-                  v-else
-                  :is="windowComponents[element]"
-                  v-bind="element === 'modify-design' ? modifyDesignProps : {}"
-                  v-on="element === 'modify-design' ? { 'evaluate-modified-design': handleEvaluateModifiedDesign } : {}"
-                />
-              </div>
-            </template>
-          </Draggable>
-        </div>
-        <button id="chat-toggle" @click="toggleChat">
-          {{ chatOpen ? "Close Chat" : "Open Chat" }}
-        </button>
-        <Chat v-show="chatOpen" ref="Chat" :chatOpen="chatOpen" @toggle-chat="toggleChat" />
+    </aside>
+    <main class="main-content">
+      <header class="app-header">
+        <h1>Chiplet Design Analysis</h1>
+      </header>
+      <div class="plot-container">
+        <Plot ref="Plot" @point-message="SendMessageWithPoint" @open-modify-design="handleOpenModifyDesign" />
       </div>
-    </div>
+      <div class="windows-row">
+        <Draggable
+          v-model="windowOrder"
+          class="windows-row"
+          :options="{animation:150, direction:'horizontal'}"
+          :itemKey="element"
+        >
+          <template #item="{element}">
+            <div v-if="openWindows[element]" class="floating-window">
+              <div class="window-header">
+                <span>{{ windowTitles[element] }}</span>
+                <button class="close-btn" @click="openWindows[element] = false">×</button>
+              </div>
+              <component
+                v-if="element === 'ga'"
+                :is="windowComponents[element]"
+                ref="RunGA"
+                v-on="{ 'run-ga': RunGAMain }"
+              />
+              <component
+                v-else
+                :is="windowComponents[element]"
+                v-bind="element === 'modify-design' ? modifyDesignProps : {}"
+                v-on="element === 'modify-design' ? { 'evaluate-modified-design': handleEvaluateModifiedDesign } : {}"
+              />
+            </div>
+          </template>
+        </Draggable>
+      </div>
+    </main>
+    <aside class="chat-panel">
+      <Chat ref="Chat" :chatOpen="true" />
+    </aside>
   </div>
 </template>
 
@@ -57,7 +56,8 @@ import Plot from "./components/Plot.vue";
 import Chat from "./components/Chat.vue";
 import DragDrop from "./components/DragDrop.vue";
 import ChipletMenu from "./components/ChipletMenu.vue";
-import DataMining from "./components/DataMining.vue";
+import RuleMining from "./components/RuleMining.vue";
+import DistanceCorrelation from "./components/DistanceCorrelation.vue";
 import Draggable from 'vuedraggable'
 import ModifyDesignMenu from './components/ModifyDesignMenu.vue';
 import "./assets/styles.css";
@@ -71,7 +71,8 @@ export default {
     Chat,
     DragDrop,
     ChipletMenu,
-    DataMining,
+    RuleMining,
+    DistanceCorrelation,
     Draggable,
     ModifyDesignMenu
   },
@@ -85,25 +86,28 @@ export default {
       status: "",
       filter1: "Latency (ns)",
       filter2: "W3d (ns)",
-      chatOpen: false, // Chat visibility state
       GAisRunning: false,
       openWindows: {
         ga: false,
         chiplet: false,
         'data-mining': false,
+        'rule-mining': false,
+        'distance-correlation': false,
         'modify-design': false,
       },
-      windowOrder: ['ga', 'chiplet', 'data-mining'],
+      windowOrder: ['ga', 'chiplet', 'rule-mining', 'distance-correlation'],
       windowTitles: {
         ga: 'Genetic Algorithm',
         chiplet: 'Chiplet Menu',
-        'data-mining': 'Data Mining',
+        'rule-mining': 'Rule Mining',
+        'distance-correlation': 'Distance Correlation Study',
         'modify-design': 'Modify Design',
       },
       windowComponents: {
         ga: 'RunGA',
         chiplet: 'ChipletMenu',
-        'data-mining': 'DataMining',
+        'rule-mining': 'RuleMining',
+        'distance-correlation': 'DistanceCorrelation',
         'modify-design': 'ModifyDesignMenu',
       },
       modifyDesignProps: null,
@@ -133,9 +137,6 @@ export default {
           console.error("Error running analysis:", error);
           this.status = "An error occurred.";
         });
-    },
-    toggleChat() {
-      this.chatOpen = !this.chatOpen;
     },
     async RunGAMain() {
       this.GAisRunning = true;
@@ -262,6 +263,103 @@ export default {
 </script>
 
 <style>
+.app-container {
+  display: flex;
+  flex-direction: row;
+  width: 100vw;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: #f5f8ff;
+  border-right: 2px solid #b3c6e0;
+  box-shadow: 2px 0 8px rgba(0,0,0,0.04);
+  display: flex;
+  flex-direction: column;
+  padding: 2rem 1rem;
+  gap: 1rem;
+  z-index: 2;
+}
+
+.main-content {
+  flex: 1;
+  padding: 16px 24px;
+  overflow: auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  background: #f9fafd;
+  border-left: none;
+}
+
+.app-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #dee2e6;
+  padding: 1rem;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.plot-container {
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 1rem 0;
+  background: white;
+  height: 400px;
+  margin: 0 auto 1rem auto;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  box-sizing: border-box;
+}
+
+.windows-row {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin: 0;
+  justify-content: flex-start;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.floating-window {
+  background: #fff;
+  border: 1px solid #e0e6ed;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(44, 62, 80, 0.10);
+  max-width: 340px;
+  min-width: 220px;
+  width: 100%;
+  padding: 0 0 1rem 0;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  vertical-align: top;
+  margin-bottom: 1rem;
+  box-sizing: border-box;
+}
+
+.chat-panel {
+  width: 300px;
+  flex-shrink: 0;
+  background: #f5f8ff;
+  border-left: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  box-sizing: border-box;
+  z-index: 2;
+  padding: 0;
+}
+
 .app-header {
   background-color: #f8f9fa;
   border-bottom: 1px solid #dee2e6;
@@ -277,30 +375,49 @@ export default {
 
 .app-layout {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 160px 1fr minmax(200px, 18vw);
   height: 100vh;
-  width: 100%;
+  width: 100vw;
   position: relative;
+  overflow-x: hidden;
+}
+
+.chat-sidebar {
+  width: 100%;
+  min-width: 200px;
+  max-width: 320px;
+  background: #f5f8ff;
+  border-left: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  box-sizing: border-box;
+  z-index: 2;
 }
 
 .main-content {
   display: flex;
   flex-direction: column;
-  padding: 1rem;
+  padding: 1rem 0.5rem 1rem 0.5rem;
+  height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .plot-container {
   width: 100%;
+  max-width: 100%;
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 1rem;
+  padding: 1rem 0;
   background: white;
-  max-width: 900px;
-  max-height: 600px;
-  margin: 2rem auto 1rem auto;
+  height: 400px;
+  margin: 0 auto 1rem auto;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  box-sizing: border-box;
 }
 
 /* General App Styling */
@@ -380,15 +497,7 @@ export default {
 
 /* Button to Open Chat */
 #chat-toggle {
-  position: absolute;
-  top: 10px;
-  right: 20px;
-  padding: 10px 15px;
-  background-color: var(--primary-color);
-  color: white;
-  border: none;
-  cursor: pointer;
-  border-radius: 5px;
+  display: none;
 }
 
 /* Flexbox layout for Filters & Plot */
@@ -412,12 +521,13 @@ export default {
 
 .windows-row {
   display: flex;
-  gap: 2rem;
+  gap: 1rem;
   flex-wrap: wrap;
-  margin: 2rem 0 0 0;
-  margin-left: 2.5rem;
+  margin: 0;
   justify-content: flex-start;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .floating-window {
@@ -425,57 +535,48 @@ export default {
   border: 1px solid #e0e6ed;
   border-radius: 12px;
   box-shadow: 0 2px 12px rgba(44, 62, 80, 0.10);
-  max-width: 420px;
-  min-width: 320px;
+  max-width: 340px;
+  min-width: 220px;
   width: 100%;
-  padding: 0 0 1.5rem 0;
+  padding: 0 0 1rem 0;
   overflow: visible;
   display: flex;
   flex-direction: column;
   vertical-align: top;
-  margin-bottom: 2rem;
+  margin-bottom: 1rem;
   box-sizing: border-box;
 }
 
 .window-header {
   background: #f8f9fa;
   border-bottom: 1px solid #e0e6ed;
-  padding: 1rem 1.25rem;
+  padding: 0.75rem 1rem;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   font-weight: 600;
-  font-size: 1.15rem;
+  font-size: 1rem;
 }
 
 .close-btn {
-  background: none;
-  border: none;
-  font-size: 1.25rem;
-  cursor: pointer;
-  color: #6c757d;
-  padding: 0 0.5rem;
-  line-height: 1;
+  display: none;
 }
 
-.close-btn:hover {
-  color: #343a40;
+.window {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  padding: 1rem;
+  margin: 1rem;
+  flex: 1;
+  min-width: 400px;
+  max-width: 800px;
+  height: calc(100vh - 2rem);
+  overflow-y: auto;
 }
 
-/* Add padding to window content */
-.floating-window > *:not(.window-header) {
-  padding: 1.25rem 1.5rem 0 1.5rem;
-}
-
-@media (max-width: 900px) {
-  .windows-row {
-    flex-direction: column;
-    margin-left: 0;
-    gap: 1rem;
-  }
-  .floating-window {
-    max-width: 98vw;
-    min-width: 0;
-  }
+.window[data-window="Rule Mining"],
+.window[data-window="Distance Correlation Study"] {
+  max-width: 1600px;
 }
 </style>
