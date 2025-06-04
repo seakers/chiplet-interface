@@ -1,27 +1,10 @@
 <template>
-  <div class="distance-correlation-content">
-    <h2>Distance Correlation Study</h2>
-    <div class="controls">
-      <div class="input-group">
-        <label for="variable-x">Variable X</label>
-        <select id="variable-x" v-model="selectedVariableX">
-          <option v-for="variable in variables" :key="variable" :value="variable">{{ variable }}</option>
-        </select>
-      </div>
-      <div class="input-group">
-        <label for="variable-y">Variable Y</label>
-        <select id="variable-y" v-model="selectedVariableY">
-          <option v-for="variable in variables" :key="variable" :value="variable">{{ variable }}</option>
-        </select>
-      </div>
-      <button @click="runCorrelationStudy" class="action-button">Run Correlation Study</button>
-    </div>
-    <div v-if="correlationResult" class="results">
-      <h3>Correlation Results</h3>
-      <div class="correlation-card">
-        <p><strong>Distance Correlation:</strong> {{ correlationResult.correlation.toFixed(4) }}</p>
-        <p><strong>P-value:</strong> {{ correlationResult.pValue.toFixed(4) }}</p>
-        <div class="visualization" ref="correlationPlot"></div>
+  <div class="distance-correlation-content data-mining-submenu-fullwidth">
+    <h2>Distance Correlation Analysis</h2>
+    <div class="correlation-grid">
+      <div v-for="(plot, index) in plots" :key="index" class="plot-container">
+        <h3 class="plot-title">{{ plot.title }}</h3>
+        <div :id="'plot-' + index" class="plot"></div>
       </div>
     </div>
   </div>
@@ -35,136 +18,171 @@ export default {
   name: "DistanceCorrelation",
   data() {
     return {
-      variables: [
-        'GPU',
-        'Attention',
-        'Sparse',
-        'Convolution',
-        'Execution Time',
-        'Energy Consumption',
-        'Temperature'
+      plots: [
+        { x: 'GPU', y: 'Total Energy (mJ)', title: 'GPU vs Energy' },
+        { x: 'Sparse', y: 'Total Energy (mJ)', title: 'Sparse vs Energy' },
+        { x: 'Attention', y: 'Total Energy (mJ)', title: 'Attention vs Energy' },
+        { x: 'Convolution', y: 'Total Energy (mJ)', title: 'Convolution vs Energy' },
+        { x: 'GPU', y: 'Total time (ms)', title: 'GPU vs Time' },
+        { x: 'Sparse', y: 'Total time (ms)', title: 'Sparse vs Time' },
+        { x: 'Attention', y: 'Total time (ms)', title: 'Attention vs Time' },
+        { x: 'Convolution', y: 'Total time (ms)', title: 'Convolution vs Time' }
       ],
-      selectedVariableX: 'GPU',
-      selectedVariableY: 'Execution Time',
-      correlationResult: null,
+      plotData: null
     };
   },
   methods: {
-    async runCorrelationStudy() {
+    async fetchData() {
       try {
-        const response = await axios.get("http://127.0.0.1:8000/api/distance-correlation/", {
-          params: {
-            variable_x: this.selectedVariableX,
-            variable_y: this.selectedVariableY,
-          }
-        });
-        this.correlationResult = response.data;
-        this.$nextTick(() => {
-          this.plotCorrelation();
-        });
+        const response = await axios.get("http://127.0.0.1:8000/api/chart-data/");
+        this.plotData = response.data.data;
+        if (response.data.correlations) {
+          this.plots.forEach(plot => {
+            plot.corr = response.data.correlations[plot.title];
+          });
+        }
+        this.createPlots();
       } catch (error) {
-        console.error("Error running correlation study:", error);
+        console.error("Error fetching data:", error);
       }
     },
-    plotCorrelation() {
-      if (!this.correlationResult || !this.$refs.correlationPlot) return;
-
-      const data = [{
-        x: this.correlationResult.x_values,
-        y: this.correlationResult.y_values,
-        mode: 'markers',
-        type: 'scatter',
-        marker: {
-          color: '#337aff',
-          size: 8,
-        },
-      }];
-
-      const layout = {
-        title: `${this.selectedVariableX} vs ${this.selectedVariableY}`,
-        xaxis: {
-          title: this.selectedVariableX,
-        },
-        yaxis: {
-          title: this.selectedVariableY,
-        },
-        margin: {
-          l: 50,
-          r: 20,
-          t: 50,
-          b: 50,
-        },
+    createPlots() {
+      const chipletKeyMap = {
+        GPU: 'gpu',
+        Sparse: 'sparse',
+        Attention: 'attn',
+        Convolution: 'conv'
       };
+      this.plots.forEach((plot, index) => {
+        const chipletKey = chipletKeyMap[plot.x];
+        const xData = this.plotData.map(point => point[chipletKey]);
+        const yData = this.plotData.map(point =>
+          plot.y === 'Total Energy (mJ)'
+            ? point['y']
+            : plot.y === 'Total time (ms)'
+              ? point['x']
+              : null
+        );
 
-      Plot.newPlot(this.$refs.correlationPlot, data, layout);
-    },
+        const trace = {
+          x: xData,
+          y: yData,
+          mode: 'markers',
+          type: 'scatter',
+          marker: {
+            color: '#337aff',
+            size: 8,
+            opacity: 0.7
+          }
+        };
+
+        const layout = {
+          title: null,
+          xaxis: {
+            title: 'Chiplet Score',
+            showgrid: true,
+            gridcolor: '#e0e0e0',
+            zeroline: false
+          },
+          yaxis: {
+            title: plot.y,
+            showgrid: true,
+            gridcolor: '#e0e0e0',
+            zeroline: false
+          },
+          margin: {
+            l: 50,
+            r: 20,
+            t: 20,
+            b: 50
+          },
+          paper_bgcolor: 'rgba(0,0,0,0)',
+          plot_bgcolor: 'rgba(0,0,0,0)'
+        };
+
+        const config = {
+          responsive: true,
+          displayModeBar: false
+        };
+
+        Plot.newPlot(`plot-${index}`, [trace], layout, config);
+      });
+    }
   },
+  mounted() {
+    this.fetchData();
+  }
 };
 </script>
 
 <style scoped>
 .distance-correlation-content {
-  padding: 1.5rem;
-  max-width: 800px;
-  margin: 0 auto;
-}
-
-.controls {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.input-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.input-group label {
-  font-weight: 600;
-  color: #2d3748;
-}
-
-.input-group select {
-  padding: 0.5rem;
-  border: 1px solid #cbd5e0;
-  border-radius: 4px;
-  font-size: 1rem;
-  background-color: white;
-}
-
-.action-button {
-  background: #337aff;
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 6px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: background 0.2s;
-  align-self: flex-start;
-}
-
-.action-button:hover {
-  background: #2356b8;
-}
-
-.results {
-  margin-top: 2rem;
-}
-
-.correlation-card {
-  background: #f7fafc;
-  padding: 1.5rem;
-  border-radius: 6px;
-  border: 1px solid #e2e8f0;
-}
-
-.visualization {
-  margin-top: 1.5rem;
-  height: 400px;
   width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+
+.data-mining-submenu-fullwidth {
+  width: 100%;
+  max-width: 100%;
+  display: grid;
+  grid-template-columns: 1fr;
+  padding: 0;
+}
+
+.data-mining-submenu-fullwidth .correlation-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 20px;
+  width: 100%;
+  height: calc(100% - 80px);
+  min-height: 600px;
+}
+
+h2 {
+  text-align: center;
+  color: #2c3e50;
+  margin-bottom: 2rem;
+  font-size: 1.75rem;
+}
+
+.correlation-grid {
+  /* grid now handled by .data-mining-submenu-fullwidth .correlation-grid */
+}
+
+.plot-container {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 250px;
+}
+
+.plot-title {
+  font-size: 1rem;
+  color: #2c3e50;
+  margin: 0 0 0.5rem 0;
+  text-align: center;
+}
+
+.plot {
+  flex: 1;
+  min-height: 200px;
+  width: 100%;
+}
+
+@media (max-width: 1400px) {
+  .data-mining-submenu-fullwidth .correlation-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .data-mining-submenu-fullwidth .correlation-grid {
+    grid-template-columns: 1fr;
+  }
 }
 </style> 

@@ -10,6 +10,7 @@
       <div class="plot-container">
         <Plot ref="Plot" :isEvaluatingDesign="isEvaluatingDesign" @point-message="SendMessageWithPoint" @open-modify-design="handleOpenModifyDesign" />
       </div>
+      <!-- Render Distance Correlation Study as a direct child for full width -->
       <div class="windows-row">
         <Draggable
           v-model="windowOrder"
@@ -18,7 +19,7 @@
           :itemKey="element"
         >
           <template #item="{element}">
-            <div v-if="openWindows[element]" class="floating-window">
+            <div v-if="openWindows[element]" :class="['floating-window', { 'full-width-window': element === 'distance-correlation' || element === 'rule-mining' }]"><!-- full-width for special windows -->
               <div class="window-header">
                 <span>{{ windowTitles[element] }}</span>
               </div>
@@ -289,89 +290,47 @@ export default {
   width: 240px;
   flex-shrink: 0;
   background: #f5f8ff;
-  border-right: 2px solid #b3c6e0;
-  box-shadow: 2px 0 8px rgba(0,0,0,0.04);
-  display: flex;
-  flex-direction: column;
-  padding: 2rem 1rem;
-  gap: 1rem;
+  box-sizing: border-box;
   z-index: 2;
 }
 
 .main-content {
-  flex: 1;
-  padding: 16px 24px;
-  overflow: auto;
+  flex: 1 1 0;
   min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   background: #f9fafd;
-  border-left: none;
-}
-
-.app-header {
-  background-color: #f8f9fa;
-  border-bottom: 1px solid #dee2e6;
-  padding: 1rem;
-  text-align: center;
-  margin-bottom: 1rem;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 24px 24px 16px 24px;
 }
 
 .plot-container {
   width: 100%;
   max-width: 100%;
+  height: 440px;
+  box-sizing: border-box;
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 1rem 0;
+  padding: 2rem 2.5rem 2.5rem 2.5rem;
   background: white;
-  height: 400px;
-  margin: 0 auto 1rem auto;
   border-radius: 8px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-  box-sizing: border-box;
-}
-
-.windows-row {
-  display: flex;
-  gap: 1rem;
-  flex-wrap: wrap;
-  margin: 0;
-  justify-content: flex-start;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-}
-
-.floating-window {
-  background: #fff;
-  border: 1px solid #e0e6ed;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(44, 62, 80, 0.10);
-  max-width: 340px;
-  min-width: 220px;
-  width: 100%;
-  padding: 0 0 1rem 0;
-  overflow: visible;
-  display: flex;
-  flex-direction: column;
-  vertical-align: top;
-  margin-bottom: 1rem;
-  box-sizing: border-box;
-  position: relative;
+  margin-bottom: 2rem;
 }
 
 .chat-panel {
   width: 300px;
   flex-shrink: 0;
   background: #f5f8ff;
-  border-left: 1px solid #e0e0e0;
+  box-sizing: border-box;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   height: 100vh;
-  box-sizing: border-box;
-  z-index: 2;
+  border-left: 1px solid #e0e0e0;
   padding: 0;
 }
 
@@ -380,6 +339,7 @@ export default {
   border-bottom: 1px solid #dee2e6;
   padding: 1rem;
   text-align: center;
+  margin-bottom: 1rem;
 }
 
 .app-header h1 {
@@ -388,152 +348,6 @@ export default {
   color: #2c3e50;
 }
 
-.app-layout {
-  display: grid;
-  grid-template-columns: 160px 1fr minmax(200px, 18vw);
-  height: 100vh;
-  width: 100vw;
-  position: relative;
-  overflow-x: hidden;
-}
-
-.chat-sidebar {
-  width: 100%;
-  min-width: 200px;
-  max-width: 320px;
-  background: #f5f8ff;
-  border-left: 1px solid #e0e0e0;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  box-sizing: border-box;
-  z-index: 2;
-}
-
-.main-content {
-  display: flex;
-  flex-direction: column;
-  padding: 1rem 0.5rem 1rem 0.5rem;
-  height: 100vh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  box-sizing: border-box;
-}
-
-.plot-container {
-  width: 100%;
-  max-width: 100%;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 1rem 0;
-  background: white;
-  height: 400px;
-  margin: 0 auto 1rem auto;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-  box-sizing: border-box;
-}
-
-/* General App Styling */
-#app {
-  font-family: Avenir, Helvetica, Arial, sans-serif;
-  text-align: center;
-  height: 100%;
-  /* Full height */
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-#title-div {
-  height: 100px;
-}
-
-/* Three-column layout */
-#main-container {
-  display: flex;
-  align-items: stretch;
-  /* Make all columns the same height */
-  border-top: 3px solid var(--primary-color);
-  border-bottom: 3px solid var(--primary-color);
-}
-
-/* Three-column layout */
-#second-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  margin: 5px;
-}
-
-/* Left Column - Sliders */
-#left-column {
-  width: 25%;
-  /* Reduce width to give more space to the middle */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 20px;
-}
-
-/* Middle Column - Plot */
-#middle-column {
-  width: 50%;
-  /* Make the middle section larger */
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  background: var(--background-color);
-  outline: 3px solid var(--primary-color);
-  padding: 20px;
-}
-
-/* Right Column - Chat */
-#right-column {
-  width: 25%;
-  /* Reduce width */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-
-/* Adjust Plot Size */
-#plot-container {
-  width: 800px;
-  height: 600px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: 10px;
-}
-
-/* Button to Open Chat */
-#chat-toggle {
-  display: none;
-}
-
-/* Flexbox layout for Filters & Plot */
-#filters-plot {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding-left: 60px;
-  padding-right: 60px;
-}
-
-/* Sliders (Left Side) */
-#filters {
-  display: flex;
-  flex-direction: column;
-  gap: 30px;
-  width: 20%;
-}
-
 .windows-row {
   display: flex;
   gap: 1rem;
@@ -543,6 +357,7 @@ export default {
   width: 100%;
   max-width: 100%;
   box-sizing: border-box;
+  align-items: stretch;
 }
 
 .floating-window {
@@ -558,6 +373,16 @@ export default {
   display: flex;
   flex-direction: column;
   vertical-align: top;
+  margin-bottom: 1rem;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.full-width-window {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  flex: 1 1 100%;
   margin-bottom: 1rem;
   box-sizing: border-box;
 }
@@ -605,6 +430,54 @@ export default {
 
 .window[data-window="Rule Mining"],
 .window[data-window="Distance Correlation Study"] {
-  max-width: 1600px;
+  max-width: 100%;
+  width: 100%;
+}
+
+/* Special styling for Distance Correlation Study */
+.floating-window[data-window="Distance Correlation Study"] {
+  max-width: none;
+  min-width: 0;
+  width: 100%;
+  flex: 1 1 100%;
+  height: calc(100vh - 200px);
+  overflow: auto;
+  padding: 1rem;
+  margin-bottom: 0;
+}
+
+.floating-window[data-window="Distance Correlation Study"] .window-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: #fff;
+}
+
+/* Responsive: stack vertically on small screens */
+@media (max-width: 900px) {
+  .app-container {
+    flex-direction: column;
+  }
+  .sidebar,
+  .chat-panel {
+    width: 100%;
+    max-width: 100vw;
+    min-width: 0;
+    height: auto;
+    border-right: none;
+    border-left: none;
+    border-bottom: 1px solid #b3c6e0;
+  }
+  .main-content {
+    max-width: 100vw;
+    width: 100%;
+    min-width: 0;
+    height: auto;
+    padding: 8px 0;
+  }
+  .chat-panel {
+    border-bottom: none;
+    border-top: 1px solid #e0e0e0;
+  }
 }
 </style>
