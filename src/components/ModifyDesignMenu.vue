@@ -5,7 +5,6 @@
       <button class="close-btn" @click="$emit('close')">×</button>
     </div>
     <div class="selected-point-info">
-      <div class="design-data-card">Design Data</div>
       <p><strong>{{ xLabel }}:</strong> {{ x !== undefined ? Number(x).toFixed(2) : '' }}</p>
       <p><strong>{{ yLabel }}:</strong> {{ y !== undefined ? Number(y).toFixed(2) : '' }}</p>
       <button class="point-button minimal-btn no-bold" @click="sendToChat">Send to chat</button>
@@ -190,15 +189,5 @@ export default {
 }
 .point-button.minimal-btn.no-bold {
   font-weight: 400;
-}
-.design-data-card {
-  font-size: 1.5rem;
-  font-weight: 700;
-  background: #f8f9fa;
-  border-radius: 6px;
-  padding: 1rem 0;
-  margin-bottom: 1rem;
-  margin-top: 0.5rem;
-  text-align: center;
 }
 </style> 
