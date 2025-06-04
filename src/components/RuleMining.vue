@@ -1,15 +1,6 @@
 <template>
   <div class="rule-mining-content">
     <h2>Rule Mining</h2>
-    <div class="controls">
-      <button 
-        @click="runRuleMining" 
-        class="action-button"
-        :disabled="isLoading"
-      >
-        {{ isLoading ? 'Running...' : 'Run Rule Mining' }}
-      </button>
-    </div>
     <div v-if="error" class="error-message">
       {{ error }}
     </div>
@@ -19,16 +10,16 @@
         <thead>
           <tr>
             <th>Rule</th>
-            <th>Conf (P → F)</th>
-            <th>Conf (F → P)</th>
-            <th>Lift (F → P)</th>
+            <th>Conf(F-&gt;P)</th>
+            <th>Conf(P-&gt;F)</th>
+            <th>Lift</th>
           </tr>
         </thead>
         <tbody>
           <tr v-for="(rule, index) in rules" :key="index">
             <td>{{ rule.rule }}</td>
-            <td>{{ rule.conf_p_to_f.toFixed(2) }}</td>
             <td>{{ rule.conf_f_to_p.toFixed(2) }}</td>
+            <td>{{ rule.conf_p_to_f.toFixed(2) }}</td>
             <td>{{ rule.lift.toFixed(2) }}</td>
           </tr>
         </tbody>
@@ -45,25 +36,24 @@ export default {
   data() {
     return {
       rules: [],
-      isLoading: false,
       error: null
     };
   },
   methods: {
-    async runRuleMining() {
-      this.isLoading = true;
+    async fetchRuleMining() {
       this.error = null;
       try {
         const response = await axios.get("http://127.0.0.1:8000/api/rule-mining/");
         this.rules = response.data.rules;
       } catch (error) {
-        console.error("Error running rule mining:", error);
-        this.error = "Failed to run rule mining. Please try again.";
-      } finally {
-        this.isLoading = false;
+        console.error("Error fetching rule mining results:", error);
+        this.error = "Failed to fetch rule mining results. Please try again.";
       }
     },
   },
+  mounted() {
+    this.fetchRuleMining();
+  }
 };
 </script>
 
@@ -72,29 +62,6 @@ export default {
   padding: 1.5rem;
   max-width: 800px;
   margin: 0 auto;
-}
-
-.controls {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.action-button {
-  background: #337aff;
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 6px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: background 0.2s;
-  align-self: flex-start;
-}
-
-.action-button:hover {
-  background: #2356b8;
 }
 
 .results {
@@ -126,10 +93,5 @@ export default {
   padding: 0.5rem;
   background: #fee2e2;
   border-radius: 4px;
-}
-
-.action-button:disabled {
-  background: #93c5fd;
-  cursor: not-allowed;
 }
 </style> 

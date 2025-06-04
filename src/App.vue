@@ -61,6 +61,7 @@ import RuleMining from "./components/RuleMining.vue";
 import DistanceCorrelation from "./components/DistanceCorrelation.vue";
 import Draggable from 'vuedraggable'
 import ModifyDesignMenu from './components/ModifyDesignMenu.vue';
+import FilterDesign from './components/FilterDesign.vue';
 import "./assets/styles.css";
 
 export default {
@@ -75,7 +76,8 @@ export default {
     RuleMining,
     DistanceCorrelation,
     Draggable,
-    ModifyDesignMenu
+    ModifyDesignMenu,
+    FilterDesign
   },
   data() {
     return {
@@ -92,22 +94,25 @@ export default {
       openWindows: {
         ga: false,
         chiplet: false,
+        'filter-design': false,
         'data-mining': false,
         'rule-mining': false,
         'distance-correlation': false,
         'modify-design': false,
       },
-      windowOrder: ['ga', 'chiplet', 'rule-mining', 'distance-correlation'],
+      windowOrder: ['ga', 'chiplet', 'filter-design', 'rule-mining', 'distance-correlation'],
       windowTitles: {
         ga: 'Genetic Algorithm',
         chiplet: 'Chiplet Menu',
+        'filter-design': 'Filter Design',
         'rule-mining': 'Rule Mining',
         'distance-correlation': 'Distance Correlation Study',
-        'modify-design': 'Modify Design',
+        'modify-design': 'Selected Design',
       },
       windowComponents: {
         ga: 'RunGA',
         chiplet: 'ChipletMenu',
+        'filter-design': 'FilterDesign',
         'rule-mining': 'RuleMining',
         'distance-correlation': 'DistanceCorrelation',
         'modify-design': 'ModifyDesignMenu',

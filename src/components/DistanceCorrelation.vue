@@ -5,6 +5,9 @@
       <div v-for="(plot, index) in plots" :key="index" class="plot-container">
         <h3 class="plot-title">{{ plot.title }}</h3>
         <div :id="'plot-' + index" class="plot"></div>
+        <div v-if="distanceCorrelations && typeof distanceCorrelations[plot.title.replace(' vs ', '_vs_')] === 'number'" class="correlation-value">
+          dCor = {{ distanceCorrelations[plot.title.replace(' vs ', '_vs_')].toFixed(2) }}
+        </div>
       </div>
     </div>
   </div>
@@ -28,7 +31,8 @@ export default {
         { x: 'Attention', y: 'Total time (ms)', title: 'Attention vs Time' },
         { x: 'Convolution', y: 'Total time (ms)', title: 'Convolution vs Time' }
       ],
-      plotData: null
+      plotData: null,
+      distanceCorrelations: null
     };
   },
   methods: {
@@ -44,6 +48,14 @@ export default {
         this.createPlots();
       } catch (error) {
         console.error("Error fetching data:", error);
+      }
+    },
+    async fetchDistanceCorrelation() {
+      try {
+        const response = await axios.get("http://127.0.0.1:8000/api/distance-correlation/");
+        this.distanceCorrelations = response.data;
+      } catch (error) {
+        console.error("Error fetching distance correlation:", error);
       }
     },
     createPlots() {
@@ -111,6 +123,7 @@ export default {
   },
   mounted() {
     this.fetchData();
+    this.fetchDistanceCorrelation();
   }
 };
 </script>
@@ -172,6 +185,13 @@ h2 {
   flex: 1;
   min-height: 200px;
   width: 100%;
+}
+
+.correlation-value {
+  text-align: center;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+  color: #666;
 }
 
 @media (max-width: 1400px) {

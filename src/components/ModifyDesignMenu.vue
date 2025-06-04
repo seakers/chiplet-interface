@@ -5,9 +5,10 @@
       <button class="close-btn" @click="$emit('close')">×</button>
     </div>
     <div class="selected-point-info">
+      <div class="design-data-card">Design Data</div>
       <p><strong>{{ xLabel }}:</strong> {{ x !== undefined ? Number(x).toFixed(2) : '' }}</p>
       <p><strong>{{ yLabel }}:</strong> {{ y !== undefined ? Number(y).toFixed(2) : '' }}</p>
-      <button class="point-button" @click="sendToChat">Send to chat</button>
+      <button class="point-button minimal-btn no-bold" @click="sendToChat">Send to chat</button>
     </div>
     <h3>Modify Design</h3>
     <div class="input-group" v-for="(value, key) in inputs" :key="key">
@@ -186,5 +187,18 @@ export default {
 .minimal-btn:disabled {
   background: #b3c6e0;
   cursor: not-allowed;
+}
+.point-button.minimal-btn.no-bold {
+  font-weight: 400;
+}
+.design-data-card {
+  font-size: 1.5rem;
+  font-weight: 700;
+  background: #f8f9fa;
+  border-radius: 6px;
+  padding: 1rem 0;
+  margin-bottom: 1rem;
+  margin-top: 0.5rem;
+  text-align: center;
 }
 </style> 
