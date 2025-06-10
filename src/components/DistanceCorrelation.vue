@@ -10,6 +10,9 @@
         </div>
       </div>
     </div>
+    <div class="insights-button-container">
+      <button class="insights-button" @click="getInsights">Get Insights</button>
+    </div>
   </div>
 </template>
 
@@ -119,6 +122,49 @@ export default {
 
         Plot.newPlot(`plot-${index}`, [trace], layout, config);
       });
+    },
+    async getInsights() {
+      try {
+        const response = await axios.get("http://127.0.0.1:8000/api/distance-correlation/");
+        const correlations = response.data;
+        
+        // Format the insights message
+        let insightsMessage = "Here are the key insights from the distance correlation analysis:\n\n";
+        
+        // Group by metric (Energy and Time)
+        const energyInsights = [];
+        const timeInsights = [];
+        
+        for (const [key, value] of Object.entries(correlations)) {
+          const [chiplet, metric] = key.split('_vs_');
+          const insight = `${chiplet}: ${value.toFixed(3)}`;
+          if (metric === 'Energy') {
+            energyInsights.push(insight);
+          } else {
+            timeInsights.push(insight);
+          }
+        }
+        
+        // Sort insights by correlation value (descending)
+        const sortInsights = (a, b) => parseFloat(b.split(': ')[1]) - parseFloat(a.split(': ')[1]);
+        energyInsights.sort(sortInsights);
+        timeInsights.sort(sortInsights);
+        
+        insightsMessage += "Energy Impact (higher values indicate stronger influence):\n";
+        energyInsights.forEach(insight => {
+          insightsMessage += `• ${insight}\n`;
+        });
+        
+        insightsMessage += "\nTime Impact (higher values indicate stronger influence):\n";
+        timeInsights.forEach(insight => {
+          insightsMessage += `• ${insight}\n`;
+        });
+        
+        // Emit event to parent to send to chat
+        this.$emit('send-insights-to-chat', insightsMessage);
+      } catch (error) {
+        console.error("Error getting insights:", error);
+      }
     }
   },
   mounted() {
@@ -133,14 +179,19 @@ export default {
   width: 100%;
   height: 100%;
   overflow: auto;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+  padding-bottom: 2rem;
 }
 
 .data-mining-submenu-fullwidth {
   width: 100%;
   max-width: 100%;
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
   padding: 0;
+  min-height: 100%;
 }
 
 .data-mining-submenu-fullwidth .correlation-grid {
@@ -148,7 +199,7 @@ export default {
   grid-template-columns: repeat(4, 1fr);
   gap: 20px;
   width: 100%;
-  height: calc(100% - 80px);
+  flex: 1;
   min-height: 600px;
 }
 
@@ -204,5 +255,33 @@ h2 {
   .data-mining-submenu-fullwidth .correlation-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.insights-button-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+.insights-button {
+  background-color: #337aff;
+  color: white;
+  padding: 14px 36px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(51,122,255,0.08);
+  transition: background-color 0.2s, box-shadow 0.2s;
+  min-width: 160px;
+}
+
+.insights-button:hover {
+  background-color: #2866cc;
+  box-shadow: 0 4px 16px rgba(51,122,255,0.15);
 }
 </style> 

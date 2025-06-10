@@ -31,6 +31,11 @@
                 v-on="{ 'run-ga': RunGAMain }"
               />
               <component
+                v-else-if="element === 'distance-correlation'"
+                :is="windowComponents[element]"
+                @send-insights-to-chat="handleSendInsightsToChat"
+              />
+              <component
                 v-else
                 :is="windowComponents[element]"
                 v-bind="element === 'modify-design' ? modifyDesignProps : {}"
@@ -277,6 +282,28 @@ export default {
         conv: design.Convolution,
         trace: design.trace
       });
+    },
+    async handleSendInsightsToChat(insightsMessage) {
+      // Show loading in chat
+      this.$refs.Chat.gettingData = true;
+      // Do not push 'Analyzing insights...' as a chat message
+
+      // Send to backend for LLM analysis
+      try {
+        const response = await axios.get('http://127.0.0.1:8000/api/chat-response/', {
+          params: {
+            role: "user",
+            content: "Please provide a detailed, natural-language summary and interpretation of these distance correlation results, including what high or low values mean for chiplet design choices:\n\n" + insightsMessage
+          }
+        });
+        this.$refs.Chat.gettingData = false;
+        this.$refs.Chat.chatMessage = response.data.response;
+        this.$refs.Chat.assistantMessage();
+      } catch (error) {
+        this.$refs.Chat.gettingData = false;
+        this.$refs.Chat.chatMessage = "Sorry, I couldn't analyze the insights right now.";
+        this.$refs.Chat.assistantMessage();
+      }
     },
   },
 };
