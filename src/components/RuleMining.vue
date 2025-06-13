@@ -25,6 +25,9 @@
         </tbody>
       </table>
     </div>
+    <div class="insights-button-container">
+      <button class="insights-button" @click="getInsights">Get Insights</button>
+    </div>
   </div>
 </template>
 
@@ -50,6 +53,16 @@ export default {
         this.error = "Failed to fetch rule mining results. Please try again.";
       }
     },
+    async getInsights() {
+      try {
+        const response = await axios.get("http://127.0.0.1:8000/api/rule-mining-insights/");
+        const insights = response.data.insights;
+        this.$emit('send-insights-to-chat', insights);
+      } catch (error) {
+        console.error("Error getting rule mining insights:", error);
+        this.error = "Failed to get insights. Please try again.";
+      }
+    }
   },
   mounted() {
     this.fetchRuleMining();
@@ -82,6 +95,7 @@ export default {
   background: #f5f8ff;
   font-weight: 700;
   color: #2d3748;
+  white-space: nowrap;
 }
 .rules-table tr:nth-child(even) {
   background: #f7fafc;
@@ -93,5 +107,33 @@ export default {
   padding: 0.5rem;
   background: #fee2e2;
   border-radius: 4px;
+}
+
+.insights-button-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+.insights-button {
+  background-color: #337aff;
+  color: white;
+  padding: 14px 36px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(51,122,255,0.08);
+  transition: background-color 0.2s, box-shadow 0.2s;
+  min-width: 160px;
+}
+
+.insights-button:hover {
+  background-color: #2866cc;
+  box-shadow: 0 4px 16px rgba(51,122,255,0.15);
 }
 </style> 

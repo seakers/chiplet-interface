@@ -2,6 +2,7 @@
   <div class="sidebar">
     <div class="sidebar-title">Design Menu</div>
     <div class="sidebar-divider"></div>
+    <button :class="{ active: openWindows && openWindows['problem-formulation'] }" @click="$emit('select', 'problem-formulation')">Problem Formulation</button>
     <button :class="{ active: openWindows && openWindows.ga }" @click="$emit('select', 'ga')">Genetic Algorithm</button>
     <button :class="{ active: openWindows && openWindows.chiplet }" @click="$emit('select', 'chiplet')">Chiplet Menu</button>
     <button :class="{ active: openWindows && openWindows['filter-design'] }" @click="$emit('select', 'filter-design')">Filter Design</button>

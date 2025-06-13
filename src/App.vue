@@ -36,6 +36,11 @@
                 @send-insights-to-chat="handleSendInsightsToChat"
               />
               <component
+                v-else-if="element === 'rule-mining'"
+                :is="windowComponents[element]"
+                @send-insights-to-chat="handleSendInsightsToChat"
+              />
+              <component
                 v-else
                 :is="windowComponents[element]"
                 v-bind="element === 'modify-design' ? modifyDesignProps : {}"
@@ -67,6 +72,7 @@ import DistanceCorrelation from "./components/DistanceCorrelation.vue";
 import Draggable from 'vuedraggable'
 import ModifyDesignMenu from './components/ModifyDesignMenu.vue';
 import FilterDesign from './components/FilterDesign.vue';
+import ProblemFormulation from './components/ProblemFormulation.vue';
 import "./assets/styles.css";
 
 export default {
@@ -82,7 +88,8 @@ export default {
     DistanceCorrelation,
     Draggable,
     ModifyDesignMenu,
-    FilterDesign
+    FilterDesign,
+    ProblemFormulation
   },
   data() {
     return {
@@ -104,8 +111,9 @@ export default {
         'rule-mining': false,
         'distance-correlation': false,
         'modify-design': false,
+        'problem-formulation': false,
       },
-      windowOrder: ['ga', 'chiplet', 'filter-design', 'rule-mining', 'distance-correlation'],
+      windowOrder: ['ga', 'chiplet', 'filter-design', 'rule-mining', 'distance-correlation', 'problem-formulation'],
       windowTitles: {
         ga: 'Genetic Algorithm',
         chiplet: 'Chiplet Menu',
@@ -113,6 +121,7 @@ export default {
         'rule-mining': 'Rule Mining',
         'distance-correlation': 'Distance Correlation Study',
         'modify-design': 'Selected Design',
+        'problem-formulation': 'Problem Formulation',
       },
       windowComponents: {
         ga: 'RunGA',
@@ -121,6 +130,7 @@ export default {
         'rule-mining': 'RuleMining',
         'distance-correlation': 'DistanceCorrelation',
         'modify-design': 'ModifyDesignMenu',
+        'problem-formulation': 'ProblemFormulation',
       },
       modifyDesignProps: null,
     };
@@ -341,7 +351,7 @@ export default {
 .plot-container {
   width: 100%;
   max-width: 100%;
-  height: 440px;
+  height: 600px;
   box-sizing: border-box;
   display: flex;
   justify-content: center;
