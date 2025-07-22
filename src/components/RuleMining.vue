@@ -32,7 +32,7 @@
 </template>
 
 <script>
-import axios from 'axios';
+import { getRuleMining, getRuleMiningInsights } from '@/services/analytics';
 
 export default {
   name: "RuleMining",
@@ -46,8 +46,8 @@ export default {
     async fetchRuleMining() {
       this.error = null;
       try {
-        const response = await axios.get("http://127.0.0.1:8000/api/rule-mining/");
-        this.rules = response.data.rules;
+        const response = await getRuleMining();
+        this.rules = response.rules;
       } catch (error) {
         console.error("Error fetching rule mining results:", error);
         this.error = "Failed to fetch rule mining results. Please try again.";
@@ -55,8 +55,8 @@ export default {
     },
     async getInsights() {
       try {
-        const response = await axios.get("http://127.0.0.1:8000/api/rule-mining-insights/");
-        const insights = response.data.insights;
+        const response = await getRuleMiningInsights();
+        const insights = response.insights;
         this.$emit('send-insights-to-chat', insights);
       } catch (error) {
         console.error("Error getting rule mining insights:", error);

@@ -27,7 +27,7 @@
 </template>
 
 <script>
-import axios from 'axios';
+import { evaluatePointInputs } from '@/services/evaluation';
 import ChipletLayout from "./ChipletLayout.vue";
 
 export default {
@@ -97,15 +97,13 @@ export default {
             try {
                 console.log("In Confirm")
                 console.log(this.inputs)
-                const response = await axios.get("http://127.0.0.1:8000/api/evaluate-point-inputs/", {
-                    params: {
-                        ...this.inputs,
-                        trace: this.selectedTrace,
-                    }
+                const response = await evaluatePointInputs({
+                    ...this.inputs,
+                    trace: this.selectedTrace,
                 });
                 console.log("EVAL DATA")
-                console.log(response.data.data)
-                return response.data.data;
+                console.log(response.data)
+                return response.data;
             } catch (error) {
                 console.error("Error evaluating design: ", error)
             } finally {

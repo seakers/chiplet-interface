@@ -71,7 +71,6 @@ import RuleMining from "./components/RuleMining.vue";
 import DistanceCorrelation from "./components/DistanceCorrelation.vue";
 import Draggable from 'vuedraggable'
 import ModifyDesignMenu from './components/ModifyDesignMenu.vue';
-import FilterDesign from './components/FilterDesign.vue';
 import ProblemFormulation from './components/ProblemFormulation.vue';
 import "./assets/styles.css";
 
@@ -88,7 +87,6 @@ export default {
     DistanceCorrelation,
     Draggable,
     ModifyDesignMenu,
-    FilterDesign,
     ProblemFormulation
   },
   data() {
@@ -161,6 +159,7 @@ export default {
         });
     },
     async RunGAMain() {
+      console.log('RunGAMain called from run-ga event');
       this.GAisRunning = true;
       try {
         const gaData = await this.$refs.RunGA.callGABackend();

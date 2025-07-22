@@ -5,7 +5,6 @@
     <button :class="{ active: openWindows && openWindows['problem-formulation'] }" @click="$emit('select', 'problem-formulation')">Problem Formulation</button>
     <button :class="{ active: openWindows && openWindows.ga }" @click="$emit('select', 'ga')">Genetic Algorithm</button>
     <button :class="{ active: openWindows && openWindows.chiplet }" @click="$emit('select', 'chiplet')">Chiplet Menu</button>
-    <button :class="{ active: openWindows && openWindows['filter-design'] }" @click="$emit('select', 'filter-design')">Filter Design</button>
     <div class="submenu-container">
       <button :class="{ active: openWindows && openWindows['data-mining'] }" @click="$emit('select', 'data-mining')">Data Mining</button>
       <div class="submenu" v-if="openWindows && openWindows['data-mining']">

@@ -20,6 +20,7 @@
 <script>
 import { ref } from "vue";
 import axios from 'axios';
+import { evaluatePoint } from '@/services/evaluation';
 
 export default {
     data() {
@@ -43,15 +44,13 @@ export default {
             try {
                 console.log("In Confirm")
                 console.log(this.dropItems)
-                const response = await axios.get("http://127.0.0.1:8000/api/evaluate-point/", {
-                    params: {
-                        chiplets: this.dropItems,
-                        trace: "gpt-j-65536-weighted",
-                    }
+                const response = await evaluatePoint({
+                    chiplets: this.dropItems,
+                    trace: "gpt-j-65536-weighted",
                 });
                 console.log("EVAL DATA")
-                console.log(response.data.data)
-                return response.data.data;
+                console.log(response.data)
+                return response.data;
             } catch (error) {
                 console.error("Error evaluating design: ", error)
             }

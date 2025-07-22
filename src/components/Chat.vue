@@ -35,6 +35,7 @@
 import { ref, nextTick } from "vue";
 import "../assets/styles.css";
 import axios from "axios";
+import { sendChat, clearChat, addInfo } from '@/services/chat';
 
 export default {
     props: {
@@ -76,16 +77,12 @@ export default {
 
                 // Send message to ChatGPT
                 // const response = await sendMessageToChatGPT(userMessage);
-                const response = await axios.get('http://127.0.0.1:8000/api/chat-response/',
-                    {
-                        params: {
-                            role: "user",
-                            content: userMessage
-                        }
-                    }
-                );
+                const response = await sendChat({
+                    role: "user",
+                    content: userMessage
+                });
                 // response = response.data.data;
-                this.messages.push({ text: response.data.response, sender: "chat" });
+                this.messages.push({ text: response.response, sender: "chat" });
 
                 this.loading = false;
                 await nextTick();
@@ -100,7 +97,7 @@ export default {
         dropdownSelectOption(option) {
             if (option === "Clear") {
                 this.messages = [];
-                axios.post('http://127.0.0.1:8000/api/clear-chat/')
+                clearChat()
                     .then(() => {
                         console.log("Chat cleared on the backend.");
                     })

@@ -34,6 +34,7 @@
 <script>
 import { ref } from "vue";
 import axios from 'axios';
+import { runGA } from '@/services/ga';
 
 export default {
     props: {
@@ -54,17 +55,16 @@ export default {
     },
     methods: {
         async callGABackend() {
+            console.log('callGABackend called in RunGA.vue');
             try {
-                const response = await axios.get("http://127.0.0.1:8000/api/chart-data/", {
-                    params: {
-                        pop_size: this.pop_size,
-                        n_gen: this.n_gen,
-                        trace: this.selectedTrace,
-                    }
+                const response = await runGA({
+                    pop_size: this.pop_size,
+                    n_gen: this.n_gen,
+                    trace: this.selectedTrace,
                 });
                 console.log("RESPONSE DATA")
-                console.log(response.data.data)
-                return response.data.data
+                console.log(response.data)
+                return response.data
             } catch (error) {
                 console.error("Error fetching chart data:", error);
             }

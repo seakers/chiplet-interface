@@ -19,6 +19,7 @@
 <script>
 import axios from 'axios';
 import Plot from 'plotly.js-dist';
+import { getDistanceCorrelation } from '@/services/analytics';
 
 export default {
   name: "DistanceCorrelation",
@@ -55,8 +56,8 @@ export default {
     },
     async fetchDistanceCorrelation() {
       try {
-        const response = await axios.get("http://127.0.0.1:8000/api/distance-correlation/");
-        this.distanceCorrelations = response.data;
+        const response = await getDistanceCorrelation();
+        this.distanceCorrelations = response;
       } catch (error) {
         console.error("Error fetching distance correlation:", error);
       }
@@ -125,8 +126,8 @@ export default {
     },
     async getInsights() {
       try {
-        const response = await axios.get("http://127.0.0.1:8000/api/distance-correlation/");
-        const correlations = response.data;
+        const response = await getDistanceCorrelation();
+        const correlations = response;
         
         // Format the insights message
         let insightsMessage = "Here are the key insights from the distance correlation analysis:\n\n";
