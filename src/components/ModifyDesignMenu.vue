@@ -1,38 +1,50 @@
 <template>
-  <div class="chiplet-menu-content">
-    <div class="window-header">
-      <span>Selected Design</span>
-      <button class="close-btn" @click="$emit('close')">×</button>
+  <div class="modal-overlay" @click.self="$emit('close')">
+    <div class="modal-content">
+      <div class="modal-header">
+        <span class="modal-title">Modify Design</span>
+        <button class="close-btn" @click="$emit('close')">&times;</button>
+      </div>
+      <div class="chiplet-selectors">
+        <div v-for="(value, key) in inputs" :key="key" class="chiplet-group">
+          <label :for="key">{{ key }}</label>
+          <input type="number" :id="key" v-model.number="inputs[key]" min="0" max="12" />
+        </div>
+      </div>
+      <div class="total-display" :class="{ 'valid': isSumValid, 'invalid': !isSumValid }">
+        Total: {{ total }}/12
+      </div>
+      <div class="form-actions">
+        <button type="button" class="btn cancel-btn" @click="$emit('close')" :disabled="isRunning">Cancel</button>
+        <button 
+          type="button" 
+          class="btn submit-btn" 
+          :disabled="!isSumValid || isRunning"
+          @click="handleButtonClick"
+        >
+          <span v-if="isRunning">Evaluating...</span>
+          <span v-else>Modify Design</span>
+        </button>
+        <button 
+          type="button" 
+          class="btn chat-btn" 
+          @click="sendToChat"
+        >
+          Send to Chat
+        </button>
+      </div>
+      <div class="validation-info">
+        <p v-if="!isSumValid" class="warning">Total must sum to 12, current total: {{ total }}</p>
+        <p v-else class="success">Total: {{ total }} ✓</p>
+      </div>
     </div>
-    <div class="selected-point-info">
-      <p><strong>{{ xLabel }}:</strong> {{ x !== undefined ? Number(x).toFixed(2) : '' }}</p>
-      <p><strong>{{ yLabel }}:</strong> {{ y !== undefined ? Number(y).toFixed(2) : '' }}</p>
-      <button class="point-button minimal-btn no-bold" @click="sendToChat">Send to chat</button>
-    </div>
-    <h3>Modify Design</h3>
-    <div class="input-group" v-for="(value, key) in inputs" :key="key">
-      <label :for="key">
-        <span class="color-box" :style="{ backgroundColor: colorMap[key] }"></span>
-        {{ key }}
-      </label>
-      <input type="number" :id="key" v-model.number="inputs[key]" min="0" max="12" />
-    </div>
-    <div style="margin-top: 1rem;">
-      <label for="chiplet-type">Trace</label><br>
-      <select id="chiplet-type" v-model="selectedTrace">
-        <option v-for="item in traceOptions" :key="item" :value="item">
-          {{ item }}
-        </option>
-      </select>
-    </div>
-    <button :disabled="!isSumValid || isRunning" @click="emitDesign" class="minimal-btn">Evaluate Modified Design</button>
-    <p v-if="!isSumValid" class="warning">Total must sum to 12, there are {{ total }}</p>
   </div>
 </template>
 
 <script>
 export default {
   name: "ModifyDesignMenu",
+  emits: ['close', 'submit-modified-design', 'send-to-chat'],
   props: {
     initialGPU: { type: Number, required: true },
     initialAttention: { type: Number, required: true },
@@ -66,20 +78,109 @@ export default {
       },
     };
   },
+  created() {
+    // Ensure inputs are initialized with current prop values
+    console.log('=== ModifyDesignMenu CREATED ===');
+    console.log('Props at creation:', {
+      GPU: this.initialGPU,
+      Attention: this.initialAttention,
+      Sparse: this.initialSparse,
+      Convolution: this.initialConvolution,
+      Trace: this.initialTrace
+    });
+    
+    // Force update inputs with current prop values
+    this.inputs = {
+      GPU: this.initialGPU,
+      Attention: this.initialAttention,
+      Sparse: this.initialSparse,
+      Convolution: this.initialConvolution,
+    };
+    this.selectedTrace = this.initialTrace;
+    
+    console.log('Inputs initialized to:', this.inputs);
+    console.log('=== END CREATED ===');
+  },
   computed: {
     total() {
       return Object.values(this.inputs).reduce((acc, val) => acc + val, 0);
     },
     isSumValid() {
-      return this.total === 12;
+      const valid = this.total === 12;
+      console.log('Validation check - Total:', this.total, 'Valid:', valid);
+      return valid;
     },
+  },
+  watch: {
+    // Watch for changes in initial props and update inputs accordingly
+    initialGPU(newVal, oldVal) {
+      console.log('initialGPU changed from', oldVal, 'to:', newVal);
+      this.inputs.GPU = newVal;
+      console.log('inputs.GPU updated to:', this.inputs.GPU);
+    },
+    initialAttention(newVal, oldVal) {
+      console.log('initialAttention changed from', oldVal, 'to:', newVal);
+      this.inputs.Attention = newVal;
+      console.log('inputs.Attention updated to:', this.inputs.Attention);
+    },
+    initialSparse(newVal, oldVal) {
+      console.log('initialSparse changed from', oldVal, 'to:', newVal);
+      this.inputs.Sparse = newVal;
+      console.log('inputs.Sparse updated to:', this.inputs.Sparse);
+    },
+    initialConvolution(newVal, oldVal) {
+      console.log('initialConvolution changed from', oldVal, 'to:', newVal);
+      this.inputs.Convolution = newVal;
+      console.log('inputs.Convolution updated to:', this.inputs.Convolution);
+    },
+    initialTrace(newVal, oldVal) {
+      console.log('initialTrace changed from', oldVal, 'to:', newVal);
+      this.selectedTrace = newVal;
+    },
+  },
+  mounted() {
+    // Ensure inputs are properly initialized when component mounts
+    console.log('=== ModifyDesignMenu MOUNTED ===');
+    console.log('Props received:', {
+      GPU: this.initialGPU,
+      Attention: this.initialAttention,
+      Sparse: this.initialSparse,
+      Convolution: this.initialConvolution,
+      Trace: this.initialTrace
+    });
+    console.log('Current inputs after mount:', this.inputs);
+    console.log('Total after mount:', this.total);
+    console.log('=== END MOUNT ===');
   },
   methods: {
     emitDesign() {
-      this.$emit("evaluate-modified-design", {
-        ...this.inputs,
-        trace: this.selectedTrace
+      console.log('emitDesign called');
+      console.log('Current inputs:', this.inputs);
+      console.log('Total:', this.total);
+      console.log('isSumValid:', this.isSumValid);
+      this.$emit("submit-modified-design", {
+        chiplets: { ...this.inputs }
       });
+    },
+    handleButtonClick() {
+      console.log('=== BUTTON CLICKED ===');
+      console.log('Button clicked - handleButtonClick');
+      console.log('Current inputs at button click:', this.inputs);
+      console.log('Total at button click:', this.total);
+      console.log('isSumValid at button click:', this.isSumValid);
+      console.log('isRunning at button click:', this.isRunning);
+      
+      if (this.isSumValid && !this.isRunning) {
+        console.log('Emitting submit-modified-design event');
+        const designData = {
+          chiplets: { ...this.inputs }
+        };
+        console.log('Design data being emitted:', designData);
+        this.$emit("submit-modified-design", designData);
+      } else {
+        console.log('Button click ignored - not valid or running');
+      }
+      console.log('=== END BUTTON CLICK ===');
     },
     sendToChat() {
       this.$emit('send-to-chat', {
@@ -168,8 +269,9 @@ export default {
   border: 1px solid #ccc;
 }
 .warning {
-  color: red;
-  font-size: 0.8em;
+  color: #e03131;
+  font-size: 0.9em;
+  font-weight: 600;
 }
 .minimal-btn {
   margin-top: 10px;
@@ -189,5 +291,144 @@ export default {
 }
 .point-button.minimal-btn.no-bold {
   font-weight: 400;
+}
+/* Modal overlay and modal content styles to match CustomDesignModal */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0,0,0,0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+}
+.modal-content {
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.15);
+  padding: 2rem 2.5rem 1.5rem 2.5rem;
+  min-width: 340px;
+  max-width: 95vw;
+  position: relative;
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+.modal-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #2c3e50;
+}
+.close-btn {
+  background: #f3f4f6;
+  color: #374151;
+  border: none;
+  border-radius: 50%;
+  width: 2rem;
+  height: 2rem;
+  font-size: 1.5rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s, color 0.2s;
+  box-shadow: 0 1px 4px rgba(44, 62, 80, 0.08);
+}
+.close-btn:hover {
+  background: #e0e6ed;
+  color: #111827;
+}
+.chiplet-selectors {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.chiplet-group {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 1.5rem;
+  gap: 1rem;
+}
+.btn {
+  min-width: 100px;
+  font-size: 1.05rem;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid #b3c6e0;
+  padding: 0.6rem 1.2rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.submit-btn {
+  background: #37b24d;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+}
+.submit-btn:hover:not(:disabled) {
+  background: #2d8f3f;
+  transform: translateY(-1px);
+}
+.submit-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+.submit-btn:disabled {
+  background: #b3c6e0;
+  color: #fff;
+  cursor: not-allowed;
+  transform: none;
+}
+.cancel-btn {
+  background: #e0e6ed;
+  color: #374151;
+}
+.cancel-btn:hover {
+  background: #d1d5db;
+}
+.chat-btn {
+  background: #6366f1;
+  color: #fff;
+}
+.chat-btn:hover {
+  background: #4f46e5;
+  transform: translateY(-1px);
+}
+.chat-btn:active {
+  transform: translateY(0);
+}
+.validation-info {
+  margin-top: 1rem;
+  text-align: center;
+}
+.success {
+  color: #37b24d;
+  font-size: 0.9em;
+  font-weight: 600;
+}
+.total-display {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 1.5rem;
+  text-align: center;
+}
+.total-display.valid {
+  color: #37b24d;
+}
+.total-display.invalid {
+  color: #e03131;
 }
 </style> 

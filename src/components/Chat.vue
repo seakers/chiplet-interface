@@ -1,14 +1,20 @@
 <template>
     <div id="chat-column" v-if="chatOpen">
         <div id="chat-header">
-            <h2>Chat (GPT4o-mini)</h2>
+            <h2>AI Assistant</h2>
         </div>
         <div id="chat-body">
-            <p>Welcome to the chat! Ask your questions here.</p>
+            <p>Welcome! I can assist with analysis, generate reports, provide insights, and answer your chiplet design questions.</p>
 
             <div id="chat-messages" ref="messagesContainer">
-                <div v-for="(msg, index) in messages" :key="index" :class="['chat-message', msg.sender]">
-                    {{ msg.text }}
+                <div v-for="(msg, index) in messages" :key="index" :class="['chat-message', msg.sender, { 'rich-message': msg.rich }]">
+                    <template v-if="msg.rich">
+                        <span class="gpt-badge">GPT-4o</span>
+                        <span v-html="renderRichMessage(msg.content)"></span>
+                    </template>
+                    <template v-else>
+                        <span v-html="renderMessageWithLinks(msg.text)"></span>
+                    </template>
                 </div>
                 <!-- Show loading when waiting for a response -->
                 <div v-if="loading" class="chat-message chat">Typing...</div>
@@ -41,7 +47,7 @@ export default {
     props: {
         chatOpen: Boolean,
     },
-    emits: ["toggle-chat"],
+    emits: ["toggle-chat", "highlighting-response"],
     data() {
         return {
             chatMessage: "",
@@ -75,19 +81,80 @@ export default {
                 await nextTick(); // Wait for DOM update
                 this.scrollToBottom();
 
-                // Send message to ChatGPT
-                // const response = await sendMessageToChatGPT(userMessage);
+                // Send message to backend
                 const response = await sendChat({
                     role: "user",
                     content: userMessage
                 });
-                // response = response.data.data;
-                this.messages.push({ text: response.response, sender: "chat" });
 
+                // If backend returns a 'message' field (optimization confirmation), show it immediately
+                if (response.message) {
+                    this.messages.push({ text: response.message, sender: "chat" });
+                    
+                    // Check if this is a highlighting response
+                    if (response.highlighting_data) {
+                        console.log('Chat: Received highlighting data:', response.highlighting_data);
+                        this.$emit('highlighting-response', response.highlighting_data);
+                    }
+                    
+                    this.loading = false;
+                    await nextTick();
+                    this.scrollToBottom();
+                    return;
+                }
+
+                // Otherwise, show LLM response (and you may want to show Typing... for slow LLMs)
+                if (response.response) {
+                    this.messages.push({ text: response.response, sender: "chat" });
+                }
                 this.loading = false;
                 await nextTick();
                 this.scrollToBottom();
             }
+        },
+        
+        renderMessageWithLinks(text) {
+            // Convert text to HTML with clickable links and basic markdown
+            if (!text) return '';
+            
+            let html = text;
+            
+            // Convert markdown bold (**text**) to HTML bold
+            html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+            
+            // Convert bullet points (•) to HTML list items
+            html = html.replace(/^•\s*(.*)$/gm, '<li>$1</li>');
+            
+            // Wrap consecutive list items in <ul> tags
+            html = html.replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>');
+            
+            // Regular expression to match URLs (both absolute and relative)
+            const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+|\/media\/[^\s]+)/g;
+            
+            html = html.replace(urlRegex, (url) => {
+                // Handle different URL types
+                if (url.startsWith('http')) {
+                    // Absolute URL
+                    return `<a href="${url}" target="_blank" class="chat-link">${url}</a>`;
+                } else if (url.startsWith('/media/')) {
+                    // Media URL for downloads
+                    const fullUrl = `${window.location.origin}${url}`;
+                    return `<a href="${fullUrl}" download class="chat-link">${url}</a>`;
+                } else if (url.startsWith('www.')) {
+                    // www URL
+                    const fullUrl = `http://${url}`;
+                    return `<a href="${fullUrl}" target="_blank" class="chat-link">${url}</a>`;
+                } else {
+                    // Other relative URLs
+                    const fullUrl = `${window.location.origin}${url}`;
+                    return `<a href="${fullUrl}" class="chat-link">${url}</a>`;
+                }
+            });
+            
+            // Convert line breaks to <br> tags
+            html = html.replace(/\n/g, '<br>');
+            
+            return html;
         },
         scrollToBottom() {
             if (this.messagesContainer) {
@@ -107,6 +174,93 @@ export default {
             }
             this.showOptions = false;
         },
+        // --- Markdown/anchor rendering for rich messages ---
+        renderRichMessage(content) {
+            // Simple markdown to anchor conversion for [Download Summary](url)
+            return content.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" class="download-link">$1</a>')
+                .replace(/\n/g, '<br>');
+        },
+        // --- Add a method to programmatically add a rich chat message ---
+        addRichChatMessage(message, linkUrl, linkText = "View Report") {
+            this.messages.push({
+                sender: "chat",
+                rich: true,
+                content: `${message}\n\n👉 <a href="${linkUrl}" target="_blank" class="download-link">${linkText}</a>`
+            });
+            this.scrollToBottom();
+        },
+        // --- Fallback for missing summary ---
+        addComparativeFallback() {
+            this.messages.push({
+                sender: "chat",
+                rich: true,
+                content: "Comparative run completed. Summary is not available."
+            });
+            this.scrollToBottom();
+        },
+        // --- Add a method to programmatically add a message ---
+        addMessage(message, sender = "user") {
+            this.messages.push({ text: message, sender: sender });
+            this.scrollToBottom();
+            
+            // If it's a user message, automatically send it to get AI response
+            if (sender === "user") {
+                this.sendMessageToAI(message);
+            }
+        },
+        // --- Send message to AI without user input ---
+        async sendMessageToAI(message) {
+            this.loading = true;
+            
+            try {
+                // Send message to backend
+                const response = await sendChat({
+                    role: "user",
+                    content: message
+                });
+
+                // If backend returns a 'message' field (optimization confirmation), show it immediately
+                if (response.message) {
+                    this.messages.push({ text: response.message, sender: "chat" });
+                } else if (response.response) {
+                    // Show LLM response
+                    this.messages.push({ text: response.response, sender: "chat" });
+                }
+            } catch (error) {
+                console.error("Error sending message to AI:", error);
+                this.messages.push({ text: "Sorry, I encountered an error. Please try again.", sender: "chat" });
+            } finally {
+                this.loading = false;
+                await nextTick();
+                this.scrollToBottom();
+            }
+        },
+        // --- Send backend prompt without showing it in chat (for design analysis) ---
+        async sendBackendPrompt(prompt) {
+            this.loading = true;
+            
+            try {
+                // Send prompt to backend without adding to chat history
+                const response = await sendChat({
+                    role: "user",
+                    content: prompt
+                });
+
+                // Only show the AI response, not the prompt
+                if (response.message) {
+                    this.messages.push({ text: response.message, sender: "chat" });
+                } else if (response.response) {
+                    this.messages.push({ text: response.response, sender: "chat" });
+                }
+            } catch (error) {
+                console.error("Error sending backend prompt:", error);
+                this.messages.push({ text: "Sorry, I encountered an error analyzing the design. Please try again.", sender: "chat" });
+            } finally {
+                this.loading = false;
+                await nextTick();
+                this.scrollToBottom();
+            }
+        }
     },
 };
 </script>
@@ -127,6 +281,24 @@ export default {
     display: flex;
     flex-direction: column;
     height: 100vh;
+    z-index: 1001;
+}
+
+/* Chat Links */
+.chat-link {
+    color: #337aff;
+    text-decoration: underline;
+    cursor: pointer;
+    transition: color 0.2s;
+}
+
+.chat-link:hover {
+    color: #2356b8;
+    text-decoration: none;
+}
+
+.chat-link:active {
+    color: #1a4a9e;
 }
 
 /* Chat Header */
@@ -135,7 +307,7 @@ export default {
     color: white;
     padding: 10px;
     display: flex;
-    justify-content: flex-start;
+    justify-content: center;
     align-items: center;
     height: 56px;
 }
@@ -188,6 +360,36 @@ export default {
     color: black;
     align-self: flex-start;
     text-align: left;
+}
+
+/* Rich message styling */
+.rich-message {
+    background: #eaf1ff;
+    border: 1.5px solid #337aff;
+    color: #2356b8;
+    padding: 14px 16px;
+    margin: 12px 0;
+    font-size: 15px;
+    font-weight: 500;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(44, 62, 80, 0.06);
+    position: relative;
+}
+.gpt-badge {
+    background: #337aff;
+    color: #fff;
+    font-size: 0.85em;
+    font-weight: 700;
+    border-radius: 6px;
+    padding: 2px 8px;
+    margin-right: 8px;
+    vertical-align: middle;
+}
+.download-link {
+    color: #337aff;
+    font-weight: 600;
+    text-decoration: underline;
+    margin-left: 6px;
 }
 
 #chat-input {

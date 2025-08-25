@@ -1,11 +1,11 @@
 <script setup>
 import "../assets/styles.css";
-import { onMounted, onUnmounted, ref, watch } from "vue";
+import { onMounted, onUnmounted, ref, watch, nextTick } from "vue";
 import { Chart, ScatterController, LinearScale, PointElement, Title, Tooltip } from "chart.js";
+import zoomPlugin from 'chartjs-plugin-zoom';
 import axios from "axios";
-import ModifyDesignMenu from './ModifyDesignMenu.vue';
 
-Chart.register(ScatterController, LinearScale, PointElement, Title, Tooltip);
+Chart.register(ScatterController, LinearScale, PointElement, Title, Tooltip, zoomPlugin);
 
 const chartRef = ref(null);
 let chartInstance = null;
@@ -14,28 +14,34 @@ const dropdownX = ref(0);
 const dropdownY = ref(0);
 const selectedPoint = ref(null);
 const pointDropdownRef = ref(null);
-const emit = defineEmits(["point-message", "open-modify-design"]);
+// Add legend drag functionality
+const legendRef = ref(null);
+const isLegendDragging = ref(false);
+const legendDragOffset = ref({ x: 0, y: 0 });
+const emit = defineEmits(["point-message", "point-selected", "point-hovered"]);
 
 const props = defineProps({
   isEvaluatingDesign: {
     type: Boolean,
     default: false
+  },
+  isComparative: {
+    type: Boolean,
+    default: false
+  },
+  currentRunId: {
+    type: String,
+    default: ''
+  },
+  customPoints: {
+    type: Array,
+    default: () => []
   }
 });
 
-const availableAxes = ref(["Total time (ms)", "Total Energy (mJ)", "Temperature (K)", "Latency (μs)"]); // etc.
+const availableAxes = ref(["Total time (ms)", "Total Energy (mJ)", "Temperature (K)", "Latency (μs)"]);
 const selectedXAxis = ref("Total time (ms)");
 const selectedYAxis = ref("Total Energy (mJ)");
-
-// Add state for modify design menu
-const showModifyMenu = ref(false);
-const modifyMenuProps = ref({
-    initialGPU: 0,
-    initialAttention: 0,
-    initialSparse: 0,
-    initialConvolution: 0,
-    initialTrace: "",
-});
 
 const popupX = ref(0);
 const popupY = ref(0);
@@ -43,157 +49,770 @@ const isDragging = ref(false);
 const dragOffset = ref({ x: 0, y: 0 });
 const selectedPointId = ref(null);
 
-const fetchChartData = async () => {
+const customPoints = ref([]);
+const allPoints = ref([]); // All points, including custom and GA
+const latestCompositeLabel = ref("");
+
+// Add flag to track loaded run data
+const hasLoadedRunData = ref(false);
+
+// Add highlighting functionality
+const highlightedPoints = ref([]); // Array of point indices to highlight
+
+// Add reactive state for comparative analysis loading
+const isComparativeLoading = ref(false);
+const comparativeLoadingMessage = ref('');
+
+// Add point selection state
+const selectedPointIndex = ref(null);
+// Add hovered point state
+const hoveredPointIndex = ref(null);
+// Color palette for algorithm:trace combos
+const palette = [
+  '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
+];
+// Add new color constants for comparative study
+const runAColor = '#1f77b4'; // blue
+const runBColor = '#ff7f0e'; // orange
+const customColor = '#800080';
+const highlightColor = '#FFD700';
+const selectedColor = '#FF6B6B'; // Red color for selected points
+const colorMap = ref({}); // key: 'algorithm:trace' => color
+
+function getColorForPoint(point, pointIndex = null) {
+  // Defensive check for undefined or null point
+  if (!point) {
+    console.warn('getColorForPoint called with undefined/null point:', point);
+    return '#cccccc'; // Default gray color
+  }
+  
+  // Check if this point is hovered (highest priority)
+  if (pointIndex !== null && pointIndex === hoveredPointIndex.value) {
+    console.log('🟡 HOVERED POINT DETECTED! Point index:', pointIndex, 'Hovered index:', hoveredPointIndex.value);
+    return highlightColor; // Yellow for hovered points
+  }
+  
+  // Check if this point is selected
+  if (pointIndex !== null && pointIndex === selectedPointIndex.value) {
+    console.log('🎯 SELECTED POINT DETECTED! Point index:', pointIndex, 'Selected index:', selectedPointIndex.value);
+    return selectedColor; // Red for selected points
+  }
+  
+  // Check point type first
+  if (point.type === 'custom' || point.type === 'modified') {
+    return customColor; // Purple for custom/modified points
+  }
+  
+  // Check source for backward compatibility
+  if (point.source === 'Manual' || point.label === 'Custom Design') {
+    return customColor;
+  }
+  
+  // Check run for comparative studies
+  if (point.run === 'A' || point.run_label === 'Run A') {
+    return runAColor;
+  }
+  if (point.run === 'B' || point.run_label === 'Run B') {
+    return runBColor;
+  }
+  
+  // Default: blue for optimization points
+  return palette[0];
+}
+
+function getLegendEntries() {
+  const entries = [];
+  const seen = new Set();
+  
+  // Selected point legend (only if a point is selected)
+  if (selectedPointIndex.value !== null) {
+    entries.push({ key: 'selected', label: 'Selected Design', color: selectedColor });
+  }
+  
+  // Hovered design legend (only if hovering over a different point than selected)
+  if (hoveredPointIndex.value !== null && hoveredPointIndex.value !== selectedPointIndex.value) {
+    entries.push({ key: 'hovered', label: 'Hovered Design', color: highlightColor });
+  }
+  
+  // GA and custom design legends
+  allPoints.value.forEach((pt) => {
+    let key, label, color;
+    if (pt.source === 'Manual' || pt.label === 'Custom Design') {
+      key = 'Custom Design';
+      label = 'Custom Design';
+      color = customColor;
+    } else if (pt.algorithm && pt.algorithm.toLowerCase().includes('genetic')) {
+      key = pt.algorithm ? `Genetic Algorithm (${pt.algorithm})` : 'Genetic Algorithm';
+      label = pt.algorithm ? pt.algorithm : 'Genetic Algorithm';
+      color = getColorForPoint(pt);
+    } else {
+      key = `${pt.algorithm}:${pt.algorithm}`;
+      label = pt.algorithm ? pt.algorithm : 'Unknown Algorithm';
+      color = getColorForPoint(pt);
+    }
+    if (!seen.has(key)) {
+      entries.push({ key, label, color });
+      seen.add(key);
+    }
+  });
+  // Remove duplicate Custom Design if present
+  return entries;
+}
+
+const fetchChartData = async (runId = null) => {
     try {
-        const response = await axios.get("http://127.0.0.1:8000/api/chart-data/");
-        return response.data.data;
+        let url = "http://127.0.0.1:8000/api/chart-data/";
+        let params = {};
+        
+        if (props.isComparative) {
+            params.comparative = "true";
+            console.log('Fetching comparative chart data...');
+        }
+        
+        // Check if this is a loaded run and pass the correct file path
+        if (hasLoadedRunData.value && props.currentRunId && props.currentRunId.startsWith('loaded_run_')) {
+            const tempFilePath = `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${props.currentRunId}.csv`;
+            params.file_path = tempFilePath;
+            console.log('Polling with loaded run file path:', tempFilePath);
+        }
+        
+        const response = await axios.get(url, { params });
+        const data = response.data.data;
+        
+        // For comparative analysis, log the data structure to help debug
+        if (props.isComparative) {
+            console.log('Comparative data received:', data ? data.length : 'no data');
+            if (data && data.length > 0) {
+                console.log('Sample comparative point:', data[0]);
+                const runAPoints = data.filter(pt => pt.run === 'A');
+                const runBPoints = data.filter(pt => pt.run === 'B');
+                console.log('Run A points:', runAPoints.length, 'Run B points:', runBPoints.length);
+                
+                // If we have data, stop showing loading state
+                if (data.length > 0) {
+                    isComparativeLoading.value = false;
+                    comparativeLoadingMessage.value = '';
+                }
+            } else {
+                // Show loading state if no data available
+                isComparativeLoading.value = true;
+                comparativeLoadingMessage.value = 'Comparative analysis in progress...';
+            }
+        }
+        
+        return data;
     } catch (error) {
         console.error("Error fetching chart data:", error);
+        // For comparative analysis, don't return empty array immediately
+        // Let the existing data persist while analysis is running
+        if (props.isComparative) {
+            console.log('Comparative analysis in progress - keeping existing data');
+            isComparativeLoading.value = true;
+            comparativeLoadingMessage.value = 'Comparative analysis in progress...';
+            return null; // Return null to indicate no new data, but don't clear existing
+        }
         return [];
     }
 };
 
+function buildChartData() {
+  // Filter out any undefined or malformed points
+  const validPoints = allPoints.value.filter(pt => pt && typeof pt === 'object' && pt.x !== undefined && pt.y !== undefined);
+  
+  if (validPoints.length !== allPoints.value.length) {
+    console.warn('Filtered out', allPoints.value.length - validPoints.length, 'invalid points');
+    allPoints.value = validPoints;
+  }
+  
+  // If comparative study, split by run
+  const runA = validPoints.filter(pt => pt.run === 'A' || pt.run_label === 'Run A');
+  const runB = validPoints.filter(pt => pt.run === 'B' || pt.run_label === 'Run B');
+  
+  // Categorize points by type
+  const optimizationPoints = validPoints.filter(pt => 
+    pt.type === 'optimization' || 
+    (!pt.type && !pt.source && !pt.label) // Default to optimization for backward compatibility
+  );
+  
+  const customPoints = validPoints.filter(pt => 
+    pt.type === 'custom' || 
+    pt.type === 'modified' ||
+    pt.source === 'Manual' || 
+    pt.label === 'Custom Design' || 
+    pt.label === 'Modified Design' ||
+    pt.algorithm === 'Manual'
+  );
+  
+  console.log('buildChartData - Optimization points:', optimizationPoints.length);
+  console.log('buildChartData - Custom points:', customPoints.length);
+  console.log('buildChartData - Total points:', validPoints.length);
+  console.log('buildChartData - Highlighted points:', highlightedPoints.value);
+  
+  if (runA.length || runB.length) {
+    // Comparative mode
+    return [
+      {
+        label: 'Run A',
+        data: runA.map((pt, i) => ({
+          ...pt,
+          x: pt.x,
+          y: pt.y,
+          radius: (i === hoveredPointIndex.value) ? 8 : 6,
+        })),
+        backgroundColor: (context) => {
+          const point = context.raw;
+          if (!point) {
+            console.warn('backgroundColor called with undefined point in Run A');
+            return '#cccccc';
+          }
+          const globalIndex = allPoints.value.findIndex(pt => 
+            pt && pt.x === point.x && pt.y === point.y &&
+            pt.gpu === point.gpu && pt.attn === point.attn &&
+            pt.sparse === point.sparse && pt.conv === point.conv
+          );
+          return getColorForPoint(point, globalIndex);
+        },
+        borderColor: (context) => {
+          const point = context.raw;
+          if (!point) {
+            console.warn('borderColor called with undefined point in Run A');
+            return '#cccccc';
+          }
+          const globalIndex = allPoints.value.findIndex(pt => 
+            pt && pt.x === point.x && pt.y === point.y &&
+            pt.gpu === point.gpu && pt.attn === point.attn &&
+            pt.sparse === point.sparse && pt.conv === point.conv
+          );
+          return getColorForPoint(point, globalIndex);
+        },
+        pointRadius: 6,
+        pointBorderWidth: 1,
+      },
+      {
+        label: 'Run B',
+        data: runB.map((pt, i) => ({
+          ...pt,
+          x: pt.x,
+          y: pt.y,
+          radius: (i === hoveredPointIndex.value) ? 8 : 6,
+        })),
+        backgroundColor: (context) => {
+          const point = context.raw;
+          if (!point) {
+            console.warn('backgroundColor called with undefined point in Run B');
+            return '#cccccc';
+          }
+          const globalIndex = allPoints.value.findIndex(pt => 
+            pt && pt.x === point.x && pt.y === point.y &&
+            pt.gpu === point.gpu && pt.attn === point.attn &&
+            pt.sparse === point.sparse && pt.conv === point.conv
+          );
+          return getColorForPoint(point, globalIndex);
+        },
+        borderColor: (context) => {
+          const point = context.raw;
+          if (!point) {
+            console.warn('borderColor called with undefined point in Run B');
+            return '#cccccc';
+          }
+          const globalIndex = allPoints.value.findIndex(pt => 
+            pt && pt.x === point.x && pt.y === point.y &&
+            pt.gpu === point.gpu && pt.attn === point.attn &&
+            pt.sparse === point.sparse && pt.conv === point.conv
+          );
+          return getColorForPoint(point, globalIndex);
+        },
+        pointRadius: 6,
+        pointBorderWidth: 1,
+      }
+    ];
+  }
+  
+  const datasets = [];
+  
+  // Add genetic algorithm points
+  if (optimizationPoints.length > 0) {
+    console.log('Adding optimization dataset with', optimizationPoints.length, 'points');
+    
+    // Separate highlighted and non-highlighted points
+    const highlightedOptimization = [];
+    const normalOptimization = [];
+    
+    optimizationPoints.forEach((pt, i) => {
+      const globalIndex = allPoints.value.indexOf(pt);
+      const isHighlighted = highlightedPoints.value.includes(globalIndex);
+      console.log(`Optimization point ${i}: globalIndex=${globalIndex}, isHighlighted=${isHighlighted}, highlightedPoints=${highlightedPoints.value}`);
+      
+      if (isHighlighted) {
+        highlightedOptimization.push({
+          ...pt,
+          x: pt.x,
+          y: pt.y,
+          backgroundColor: (i === hoveredPointIndex.value) ? highlightColor : getColorForPoint(pt, globalIndex),
+          borderColor: highlightColor, // Yellow border for highlighted
+          borderWidth: 5, // Much thicker border for highlighted
+          radius: (i === hoveredPointIndex.value) ? 8 : 6,
+        });
+      } else {
+        normalOptimization.push({
+          ...pt,
+          x: pt.x,
+          y: pt.y,
+          backgroundColor: (i === hoveredPointIndex.value) ? highlightColor : getColorForPoint(pt, globalIndex),
+          borderColor: getColorForPoint(pt, globalIndex),
+          borderWidth: 1,
+          radius: (i === hoveredPointIndex.value) ? 8 : 6,
+        });
+        
+        // Debug logging
+        const pointColor = getColorForPoint(pt, globalIndex);
+        console.log(`Point ${globalIndex}: x=${pt.x}, y=${pt.y}, color=${pointColor}, selected=${globalIndex === selectedPointIndex.value}`);
+      }
+    });
+    
+    // Add normal optimization points
+    if (normalOptimization.length > 0) {
+      datasets.push({
+        label: 'Optimization',
+        data: normalOptimization,
+        backgroundColor: (context) => {
+          const point = context.raw;
+          if (!point) {
+            console.warn('backgroundColor called with undefined point');
+            return '#cccccc';
+          }
+          const globalIndex = allPoints.value.findIndex(pt => 
+            pt && pt.x === point.x && pt.y === point.y &&
+            pt.gpu === point.gpu && pt.attn === point.attn &&
+            pt.sparse === point.sparse && pt.conv === point.conv
+          );
+          return getColorForPoint(point, globalIndex);
+        },
+        borderColor: (context) => {
+          const point = context.raw;
+          if (!point) {
+            console.warn('borderColor called with undefined point');
+            return '#cccccc';
+          }
+          const globalIndex = allPoints.value.findIndex(pt => 
+            pt && pt.x === point.x && pt.y === point.y &&
+            pt.gpu === point.gpu && pt.attn === point.attn &&
+            pt.sparse === point.sparse && pt.conv === point.conv
+          );
+          return getColorForPoint(point, globalIndex);
+        },
+        pointRadius: 6,
+        pointBorderWidth: 1,
+      });
+    }
+    
+    // Add highlighted optimization points as separate dataset
+    if (highlightedOptimization.length > 0) {
+      datasets.push({
+        label: 'Highlighted Designs',
+        data: highlightedOptimization,
+        backgroundColor: (context) => {
+          const point = context.raw;
+          if (!point) {
+            console.warn('backgroundColor called with undefined point');
+            return '#cccccc';
+          }
+          const globalIndex = allPoints.value.findIndex(pt => 
+            pt && pt.x === point.x && pt.y === point.y &&
+            pt.gpu === point.gpu && pt.attn === point.attn &&
+            pt.sparse === point.sparse && pt.conv === point.conv
+          );
+          return getColorForPoint(point, globalIndex);
+        },
+        borderColor: (context) => {
+          const point = context.raw;
+          if (!point) {
+            console.warn('borderColor called with undefined point');
+            return '#cccccc';
+          }
+          const globalIndex = allPoints.value.findIndex(pt => 
+            pt && pt.x === point.x && pt.y === point.y &&
+            pt.gpu === point.gpu && pt.attn === point.attn &&
+            pt.sparse === point.sparse && pt.conv === point.conv
+          );
+          return getColorForPoint(point, globalIndex);
+        },
+        pointRadius: 6,
+        pointBorderWidth: 5,
+      });
+    }
+  }
+  
+  // Add custom design points
+  if (customPoints.length > 0) {
+    console.log('Adding custom dataset with', customPoints.length, 'points');
+    datasets.push({
+      label: 'Custom Design',
+      data: customPoints.map((pt, i) => {
+        const globalIndex = allPoints.value.indexOf(pt);
+        const isHighlighted = highlightedPoints.value.includes(globalIndex);
+        console.log('Custom point data:', pt);
+        return {
+          ...pt,
+          x: pt.x,
+          y: pt.y,
+          radius: 6,  // Same size as GA points
+          borderWidth: isHighlighted ? 3 : 1, // Normal border width
+        };
+      }),
+      backgroundColor: (context) => {
+        const point = context.raw;
+        if (!point) {
+          console.warn('backgroundColor called with undefined point');
+          return '#cccccc';
+        }
+        const globalIndex = allPoints.value.findIndex(pt => 
+          pt && pt.x === point.x && pt.y === point.y &&
+          pt.gpu === point.gpu && pt.attn === point.attn &&
+          pt.sparse === point.sparse && pt.conv === point.conv
+        );
+        const isHighlighted = highlightedPoints.value.includes(globalIndex);
+        return isHighlighted ? highlightColor : customColor; // Always purple unless highlighted
+      },
+      borderColor: (context) => {
+        const point = context.raw;
+        if (!point) {
+          console.warn('borderColor called with undefined point');
+          return '#cccccc';
+        }
+        const globalIndex = allPoints.value.findIndex(pt => 
+          pt && pt.x === point.x && pt.y === point.y &&
+          pt.gpu === point.gpu && pt.attn === point.attn &&
+          pt.sparse === point.sparse && pt.conv === point.conv
+        );
+        const isHighlighted = highlightedPoints.value.includes(globalIndex);
+        return isHighlighted ? highlightColor : customColor; // Always purple unless highlighted
+      },
+      pointRadius: 6, // Same size as GA points
+      pointBorderWidth: 1, // Normal border width
+    });
+  }
+  
+  console.log('Final datasets:', datasets);
+  return datasets;
+}
+
 const createChart = () => {
+    // Clean up any existing tooltip DOM before destroying chart
+    if (chartRef.value && chartRef.value.parentNode) {
+      const oldTooltip = chartRef.value.parentNode.querySelector('.custom-tooltip');
+      if (oldTooltip) oldTooltip.remove();
+    }
     if (chartInstance) {
         chartInstance.destroy();
     }
-
+    const chartDataSets = buildChartData();
     chartInstance = new Chart(chartRef.value, {
         type: "scatter",
         data: {
-            datasets: [
-                {
-                    label: "Scatter Dataset",
-                    data: [], // Initialize with no points
-                    backgroundColor: ["black", "green", "blue", "red"],
-                    pointRadius: 4,
-                    pointHoverRadius: 8,
-                },
-            ],
+            datasets: chartDataSets
         },
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            scales: {
+                x: {
+                    type: 'linear',
+                    position: 'bottom',
+                    title: {
+                        display: true,
+                        text: selectedXAxis.value || 'Total time (ms)',
+                        font: {
+                            size: 14,
+                            weight: 'bold'
+                        }
+                    },
+                    grid: {
+                        display: true,
+                        color: 'rgba(0, 0, 0, 0.1)',
+                        drawBorder: true,
+                        drawOnChartArea: true,
+                        drawTicks: true
+                    },
+                    ticks: {
+                        display: true,
+                        color: 'rgba(0, 0, 0, 0.7)',
+                        font: {
+                            size: 12
+                        }
+                    }
+                },
+                y: {
+                    type: 'linear',
+                    position: 'left',
+                    title: {
+                        display: true,
+                        text: selectedYAxis.value || 'Total Energy (mJ)',
+                        font: {
+                            size: 14,
+                            weight: 'bold'
+                        }
+                    },
+                    grid: {
+                        display: true,
+                        color: 'rgba(0, 0, 0, 0.1)',
+                        drawBorder: true,
+                        drawOnChartArea: true,
+                        drawTicks: true
+                    },
+                    ticks: {
+                        display: true,
+                        color: 'rgba(0, 0, 0, 0.7)',
+                        font: {
+                            size: 12
+                        }
+                    }
+                }
+            },
             plugins: {
                 title: {
                     display: false,
                     text: "Scattered Data Points",
                 },
                 tooltip: {
-                    callbacks: {
-                        label: (context) => {
-                            const dataPoint = context.raw;
-                            const xLabel = selectedXAxis.value || 'X';
-                            const yLabel = selectedYAxis.value || 'Y';
-                            const xVal = (typeof dataPoint.x === 'number') ? dataPoint.x.toFixed(2) : dataPoint.x;
-                            const yVal = (typeof dataPoint.y === 'number') ? dataPoint.y.toFixed(2) : dataPoint.y;
-                            // First line: axis names and values
-                            const line1 = `${xLabel}: ${xVal}, ${yLabel}: ${yVal}`;
-                            // Second line: chiplet types and numbers
-                            const line2 = `GPU: ${dataPoint.gpu}, Attn: ${dataPoint.attn}, Sparse: ${dataPoint.sparse}, Conv: ${dataPoint.conv}`;
-                            return [line1, line2]; // Return as array for multi-line tooltip
-                        },
-                    },
+                    enabled: false, // Disable tooltips completely
                 },
-            },
-            onClick: (event, elements) => {
-                if (elements.length > 0) {
-                    const canvasPosition = chartRef.value.getBoundingClientRect();
-                    const datasetIndex = elements[0].datasetIndex;
-                    const index = elements[0].index;
-                    const dataPoint = chartInstance.data.datasets[datasetIndex].data[index];
-
-                    // Set dropdown position (relative to canvas)
-                    dropdownX.value = event.clientX - canvasPosition.left;
-                    dropdownY.value = event.clientY - canvasPosition.top;
-
-                    // Emit open-modify-design immediately
-                    emit('open-modify-design', {
-                        initialGPU: dataPoint.gpu ?? 0,
-                        initialAttention: dataPoint.attn ?? 0,
-                        initialSparse: dataPoint.sparse ?? 0,
-                        initialConvolution: dataPoint.conv ?? 0,
-                        initialTrace: dataPoint.trace ?? "",
-                        x: dataPoint.x,
-                        y: dataPoint.y,
-                        xLabel: selectedXAxis.value,
-                        yLabel: selectedYAxis.value,
-                    });
-                } else {
-                    showDropdown.value = false;
+                legend: {
+                  display: true,
+                  position: 'top',
+                  labels: {
+                    usePointStyle: true,
+                    font: { size: 14 },
+                  }
+                },
+                zoom: {
+                    pan: {
+                        enabled: true,
+                        mode: 'xy'
+                    },
+                    zoom: {
+                        wheel: {
+                            enabled: true,
+                        },
+                        pinch: {
+                            enabled: true
+                        },
+                        mode: 'xy',
+                    }
                 }
             },
-            scales: {
-                x: {
-                    type: "linear",
-                    position: "bottom",
-                    title: {
-                        display: true,
-                        text: "Total time (ms)",
-                        font: { size: 14 },
-                    },
-                },
-                y: {
-                    type: "linear",
-                    title: {
-                        display: true,
-                        text: "Total Energy (mJ)",
-                        font: { size: 14 },
-                    },
-                },
+            onClick: (event, elements) => {
+              if (elements && elements.length > 0) {
+                const element = elements[0];
+                const datasetIndex = element.datasetIndex;
+                const localIndex = element.index;
+                
+                console.log('=== CLICK HANDLER DEBUG ===');
+                console.log('Dataset index:', datasetIndex);
+                console.log('Local index:', localIndex);
+                console.log('Selected point index before:', selectedPointIndex.value);
+                
+                // Get the actual point data from the dataset
+                const dataset = chartInstance.data.datasets[datasetIndex];
+                const pointData = dataset.data[localIndex];
+                
+                console.log('Point data from dataset:', pointData);
+                console.log('All points length:', allPoints.value.length);
+                console.log('First few allPoints:', allPoints.value.slice(0, 3));
+                
+                // Find the global index in allPoints.value
+                const globalIndex = allPoints.value.findIndex(pt => 
+                  pt.x === pointData.x && pt.y === pointData.y &&
+                  pt.gpu === pointData.gpu && pt.attn === pointData.attn &&
+                  pt.sparse === pointData.sparse && pt.conv === pointData.conv
+                );
+                
+                console.log('Global index found:', globalIndex);
+                
+                // Toggle selection: if clicking the same point, deselect it; otherwise select the new point
+                if (globalIndex !== -1) {
+                  if (selectedPointIndex.value === globalIndex) {
+                    // Clicking the same point - deselect it
+                    selectedPointIndex.value = null;
+                    console.log('Deselected point');
+                    emit('point-selected', null);
+                  } else {
+                    // Clicking a different point - select it
+                    selectedPointIndex.value = globalIndex;
+                    console.log('Selected new point');
+                    const pt = allPoints.value[globalIndex];
+                    emit('point-selected', pt);
+                  }
+                }
+                
+                console.log('Selected point index after:', selectedPointIndex.value);
+                updateChart();
+                console.log('=== CLICK HANDLER DEBUG END ===');
+              }
             },
-            legend: {
-                display: true,
-                position: "top",
-                labels: {
-                    font: {
-                        size: 12,
-                        size: 12,
-                    },
-                    color: "#333",
-                },
+            onHover: (event, chartElements) => {
+              if (chartElements && chartElements.length > 0) {
+                const element = chartElements[0];
+                const datasetIndex = element.datasetIndex;
+                const localIndex = element.index;
+                
+                // Get the actual point data from the dataset
+                const dataset = chartInstance.data.datasets[datasetIndex];
+                const pointData = dataset.data[localIndex];
+                
+                // Find the global index in allPoints.value
+                const globalIndex = allPoints.value.findIndex(pt => 
+                  pt.x === pointData.x && pt.y === pointData.y &&
+                  pt.gpu === pointData.gpu && pt.attn === pointData.attn &&
+                  pt.sparse === pointData.sparse && pt.conv === pointData.conv
+                );
+                
+                hoveredPointIndex.value = globalIndex !== -1 ? globalIndex : null;
+                // Emit hovered point data for design visualizer
+                if (globalIndex !== -1) {
+                  const pt = allPoints.value[globalIndex];
+                  emit('point-hovered', pt);
+                }
+              } else {
+                hoveredPointIndex.value = null;
+                // Clear hovered point
+                emit('point-hovered', null);
+              }
+              updateChart();
             },
+            // Remove previous click-to-highlight selection logic
         },
     });
 };
 
-const startInterval = () => {
-    setInterval(async () => {
-        try {
-            const response = await axios.get("http://127.0.0.1:8000/api/update-data/");
-            const newChartData = response.data.data;
+function updateChart() {
+  console.log('=== updateChart START ===');
+  console.log('Chart instance exists:', !!chartInstance);
+  if (chartInstance) {
+    const newDataSets = buildChartData();
+    console.log('Built new datasets:', newDataSets.length);
+    console.log('Dataset details:', newDataSets.map(ds => ({ label: ds.label, points: ds.data.length })));
+    
+    // Update each dataset's data and properties in place
+    newDataSets.forEach((newSet, i) => {
+      if (chartInstance.data.datasets[i]) {
+        chartInstance.data.datasets[i].data = newSet.data;
+        chartInstance.data.datasets[i].label = newSet.label;
+        chartInstance.data.datasets[i].backgroundColor = newSet.backgroundColor;
+        chartInstance.data.datasets[i].borderColor = newSet.borderColor;
+        chartInstance.data.datasets[i].pointRadius = newSet.pointRadius;
+      } else {
+        chartInstance.data.datasets.push(newSet);
+      }
+    });
+    // Remove extra datasets if any
+    chartInstance.data.datasets.length = newDataSets.length;
+    console.log('Updating chart with new data');
+    chartInstance.update();
+    console.log('Chart update completed');
+  } else {
+    console.log('No chart instance available for update');
+  }
+  console.log('=== updateChart END ===');
+}
 
-            // Ensure data is in the correct format
-            if (Array.isArray(newChartData) && newChartData.every(point => 'x' in point && 'y' in point)) {
-                updateChartData(newChartData);
-            } else {
-                console.error("Invalid data format:", newChartData);
-            }
-        } catch (error) {
-            console.error("Error fetching updated chart data:", error);
-        }
-    }, 10000);
-};
-
-startInterval();
-
-watch([selectedXAxis, selectedYAxis], ([newX, newY]) => {
-    if (chartInstance) {
-        chartInstance.options.scales.x.title.text = newX;
-        chartInstance.options.scales.y.title.text = newY;
-        chartInstance.update();
+// Update updateChartData to robustly map both array and object points for comparative study polling, ensuring all points for Run A and Run B are plotted correctly.
+const updateChartData = (newChartData, traceMetadata = null) => {
+  console.log('=== updateChartData START ===');
+  console.log('Updating chart data with:', newChartData ? newChartData.length : 'no data');
+  console.log('New chart data type:', typeof newChartData);
+  console.log('New chart data keys:', newChartData ? Object.keys(newChartData) : 'no data');
+  
+  // Store current custom points before updating
+  const currentCustomPoints = allPoints.value.filter(pt => 
+    pt.type === 'custom' || pt.type === 'modified' || 
+    pt.source === 'Manual' || pt.label === 'Custom Design' || 
+    pt.label === 'Modified Design' || pt.algorithm === 'Custom Design'
+  );
+  console.log('Preserving custom points:', currentCustomPoints.length);
+  
+  // Handle null data from fetchChartData during comparative analysis
+  if (newChartData === null) {
+    console.log('Received null data - preserving existing data for comparative analysis');
+    return; // Don't update anything, preserve existing data
+  }
+  
+  // If comparative study, expect {A: [...], B: [...]} or run_a_results/run_b_results
+  if (newChartData && (newChartData.A || newChartData.B || newChartData.run_a_results || newChartData.run_b_results)) {
+    let points = [];
+    if (newChartData.A) points = points.concat(newChartData.A.map(pt =>
+      Array.isArray(pt)
+        ? { x: pt[0], y: pt[1], run: 'A', run_label: 'Run A' }
+        : { ...pt, run: 'A', run_label: 'Run A' }
+    ));
+    if (newChartData.B) points = points.concat(newChartData.B.map(pt =>
+      Array.isArray(pt)
+        ? { x: pt[0], y: pt[1], run: 'B', run_label: 'Run B' }
+        : { ...pt, run: 'B', run_label: 'Run B' }
+    ));
+    if (newChartData.run_a_results) points = points.concat(newChartData.run_a_results.map(pt =>
+      Array.isArray(pt)
+        ? { x: pt[0], y: pt[1], run: 'A', run_label: 'Run A' }
+        : { ...pt, run: 'A', run_label: 'Run A' }
+    ));
+    if (newChartData.run_b_results) points = points.concat(newChartData.run_b_results.map(pt =>
+      Array.isArray(pt)
+        ? { x: pt[0], y: pt[1], run: 'B', run_label: 'Run B' }
+        : { ...pt, run: 'B', run_label: 'Run B' }
+    ));
+    
+    // Only update if we have new data
+    if (points.length > 0) {
+      allPoints.value = points;
+      // Restore custom points
+      if (currentCustomPoints.length > 0) {
+        allPoints.value.push(...currentCustomPoints);
+        console.log('Restored custom points after comparative update. Total points:', allPoints.value.length);
+      }
+      console.log('Comparative mode - Total points after update:', allPoints.value.length);
+    } else {
+      console.log('Comparative mode - No new data received, preserving existing data');
     }
-});
-
-const updateChartData = (newChartData) => {
-    if (chartInstance) {
-        chartInstance.data.datasets[0].data = newChartData.map(point => ({ ...point }));
-        chartInstance.update();
+  } else {
+    // Normal mode - just use the new data, let custom points be handled naturally
+    const newPoints = newChartData && newChartData.map
+      ? newChartData.map(pt => ({
+          ...pt,
+          algorithm: pt.algorithm || 'Genetic Algorithm',
+          trace: pt.trace || '',
+        }))
+      : [];
+    console.log('Normal mode - Processing new points:', newPoints.length);
+    console.log('Sample new point:', newPoints[0]);
+    
+    // Check if this is a loaded run (has loaded_from_backup flag)
+    const isLoadedRun = newChartData && newChartData.loaded_from_backup;
+    
+    // Only update if we have new data OR if this is not a loaded run
+    // This prevents clearing loaded run data when polling returns empty data
+    if (newPoints.length > 0 || !hasLoadedRunData.value) {
+      allPoints.value = newPoints;
+      // Restore custom points
+      if (currentCustomPoints.length > 0) {
+        allPoints.value.push(...currentCustomPoints);
+        console.log('Restored custom points after normal update. Total points:', allPoints.value.length);
+      }
+      console.log('Normal mode - Total points after update:', allPoints.value.length);
+    } else {
+      console.log('Skipping update for loaded run with empty polling data');
+      console.log('hasLoadedRunData.value:', hasLoadedRunData.value);
+      console.log('newPoints.length:', newPoints.length);
     }
+  }
+  
+  console.log('All points after update:', allPoints.value.length);
+  console.log('Sample points after update:', allPoints.value.slice(0, 2));
+  updateChart();
+  console.log('=== updateChartData END ===');
 };
 
 const getChartData = () => {
-    return chartInstance ? chartInstance.data.datasets[0].data : [];
+    return allPoints.value;
 };
 
 const startDrag = (event) => {
@@ -219,6 +838,49 @@ const stopDrag = () => {
     document.removeEventListener('mouseup', stopDrag);
 };
 
+// Legend drag functionality
+const startLegendDrag = (event) => {
+    if (!legendRef.value) return;
+    
+    isLegendDragging.value = true;
+    const rect = legendRef.value.getBoundingClientRect();
+    legendDragOffset.value = {
+        x: event.clientX - rect.left,
+        y: event.clientY - rect.top,
+    };
+    
+    document.addEventListener('mousemove', onLegendDrag);
+    document.addEventListener('mouseup', stopLegendDrag);
+    event.preventDefault();
+};
+
+const onLegendDrag = (event) => {
+    if (!isLegendDragging.value || !legendRef.value) return;
+    
+    const container = legendRef.value.parentElement;
+    const containerRect = container.getBoundingClientRect();
+    
+    let newX = event.clientX - containerRect.left - legendDragOffset.value.x;
+    let newY = event.clientY - containerRect.top - legendDragOffset.value.y;
+    
+    // Keep legend within bounds
+    const legendRect = legendRef.value.getBoundingClientRect();
+    const maxX = containerRect.width - legendRect.width;
+    const maxY = containerRect.height - legendRect.height;
+    
+    newX = Math.max(0, Math.min(newX, maxX));
+    newY = Math.max(0, Math.min(newY, maxY));
+    
+    legendRef.value.style.left = newX + 'px';
+    legendRef.value.style.top = newY + 'px';
+};
+
+const stopLegendDrag = () => {
+    isLegendDragging.value = false;
+    document.removeEventListener('mousemove', onLegendDrag);
+    document.removeEventListener('mouseup', stopLegendDrag);
+};
+
 const showPointPopup = (point) => {
     if (!chartInstance) return;
     let container = chartRef.value?.parentElement;
@@ -234,20 +896,300 @@ const closePointPopup = () => {
     showDropdown.value = false;
 };
 
+// Add method for adding custom design points
+function addCustomDesignPoint(point) {
+  console.log('addCustomDesignPoint called with:', point);
+  
+  // Create the custom point with proper type identification
+  const customPoint = {
+    x: point.x,
+    y: point.y,
+    gpu: point.gpu || 0,
+    attn: point.attn || 0,
+    sparse: point.sparse || 0,
+    conv: point.conv || 0,
+    trace: point.trace || '',
+    algorithm: 'Custom Design',
+    source: 'Manual',
+    label: 'Custom Design',
+    type: 'custom', // Add explicit type for better identification
+    saved: point.saved || false // Track saved status
+  };
+  
+  console.log('Processed custom point:', customPoint);
+  
+  // Add to allPoints just like any other point
+  allPoints.value.push(customPoint);
+  
+  console.log('All points after adding custom point:', allPoints.value.length);
+  
+  updateChart();
+}
+
+// Add method for updating custom design points (e.g., marking as saved)
+function updateCustomDesignPoint(updatedPoint) {
+  console.log('updateCustomDesignPoint called with:', updatedPoint);
+  
+  // Find the custom point in allPoints and update it
+  const pointIndex = allPoints.value.findIndex(pt => 
+    pt.type === 'custom' && 
+    pt.x === updatedPoint.x && 
+    pt.y === updatedPoint.y &&
+    pt.gpu === updatedPoint.gpu &&
+    pt.attn === updatedPoint.attn &&
+    pt.sparse === updatedPoint.sparse &&
+    pt.conv === updatedPoint.conv
+  );
+  
+  if (pointIndex !== -1) {
+    console.log('Found custom point at index:', pointIndex);
+    // Update the point with new properties (like saved status)
+    allPoints.value[pointIndex] = {
+      ...allPoints.value[pointIndex],
+      ...updatedPoint
+    };
+    console.log('Updated custom point:', allPoints.value[pointIndex]);
+    updateChart();
+  } else {
+    console.log('Custom point not found for update');
+  }
+}
+
+// Add method for clearing custom design points
+function clearCustomPoints() {
+  console.log('Clearing all custom points for new optimization run');
+  
+  // Remove custom points from allPoints
+  allPoints.value = allPoints.value.filter(pt => 
+    !(pt.source === 'Manual' || pt.label === 'Custom Design' || pt.label === 'Modified Design')
+  );
+  
+  // Clear customPoints array
+  customPoints.value = [];
+  
+  console.log('Custom points cleared. Remaining points:', allPoints.value.length);
+  updateChart();
+}
+
+// Add method to set loaded run data flag
+const setLoadedRunData = (isLoaded) => {
+  console.log('=== setLoadedRunData CALLED ===');
+  console.log('Previous hasLoadedRunData.value:', hasLoadedRunData.value);
+  console.log('Setting to:', isLoaded);
+  hasLoadedRunData.value = isLoaded;
+  console.log('New hasLoadedRunData.value:', hasLoadedRunData.value);
+  console.log('=== setLoadedRunData END ===');
+};
+
+// Add method to clear loaded run data
+const clearLoadedRunData = () => {
+  hasLoadedRunData.value = false;
+  console.log('Cleared loaded run data flag');
+};
+
+// Add method to clear selected point
+const clearSelectedPoint = () => {
+  selectedPointIndex.value = null;
+  updateChart();
+};
+
+// Add method to select a specific point
+const selectPoint = (pointIndex) => {
+  selectedPointIndex.value = pointIndex;
+  updateChart();
+  if (pointIndex !== null && allPoints.value[pointIndex]) {
+    emit('point-selected', allPoints.value[pointIndex]);
+  }
+};
+
+// Method to highlight points based on constraint data
+const highlightPointsByConstraint = (highlightingData) => {
+  console.log('Plot: highlightPointsByConstraint called with:', highlightingData);
+  console.log('Plot: highlightingData type:', typeof highlightingData);
+  console.log('Plot: highlightingData keys:', Object.keys(highlightingData || {}));
+  
+  if (highlightingData && highlightingData.highlighted_points) {
+    console.log('Plot: highlighted_points array length:', highlightingData.highlighted_points.length);
+    console.log('Plot: First few highlighted_points:', highlightingData.highlighted_points.slice(0, 3));
+    
+    // Extract indices of highlighted points
+    const highlightedIndices = highlightingData.highlighted_points
+      .map((point, index) => {
+        console.log(`Plot: Point ${index}:`, point);
+        return point.highlighted ? index : -1;
+      })
+      .filter(index => index !== -1);
+    
+    console.log('Plot: Setting highlighted points to:', highlightedIndices);
+    console.log('Plot: Current allPoints length:', allPoints.value.length);
+    highlightedPoints.value = highlightedIndices;
+    
+    // Refresh the chart to show highlighting
+    if (chartInstance) {
+      console.log('Plot: Updating chart with highlighting');
+      chartInstance.data.datasets = buildChartData();
+      chartInstance.update();
+    } else {
+      console.log('Plot: No chart instance available');
+    }
+  } else {
+    console.log('Plot: No highlighting data or highlighted_points array');
+  }
+};
+
+// Method to clear highlighting
+const clearHighlighting = () => {
+  console.log('Plot: Clearing highlighting');
+  highlightedPoints.value = [];
+  
+  // Refresh the chart to remove highlighting
+  if (chartInstance) {
+    chartInstance.data.datasets = buildChartData();
+    chartInstance.update();
+  }
+};
+
+// Zoom methods
+const zoomIn = () => {
+  if (chartInstance) {
+    chartInstance.zoom(1.2);
+    chartInstance.update();
+  }
+};
+
+const zoomOut = () => {
+  if (chartInstance) {
+    chartInstance.zoom(0.8);
+    chartInstance.update();
+  }
+};
+
+const resetZoom = () => {
+  if (chartInstance) {
+    chartInstance.resetZoom();
+    chartInstance.update();
+  }
+};
+
 defineExpose({
     updateChartData,
     getChartData,
     showPointPopup,
     closePointPopup,
+    addCustomDesignPoint,
+    updateCustomDesignPoint,
+    clearCustomPoints,
+    highlightPointsByConstraint,
+    clearHighlighting,
+    selectPoint,
+    clearSelectedPoint,
+    refreshPlot: async () => {
+        console.log('Forcing plot refresh');
+        const newData = await fetchChartData();
+        updateChartData(newData);
+    },
+    enablePolling,
+    setLoadedRunData,
+    clearLoadedRunData,
+    clearComparativeLoading: () => {
+        isComparativeLoading.value = false;
+        comparativeLoadingMessage.value = '';
+    },
+    zoomIn,
+    zoomOut,
+    resetZoom
 });
 
+let refreshInterval = null;
+let hasOptimizationRun = false; // Track if optimization has been run
+
+function startPolling() {
+  if (refreshInterval) clearInterval(refreshInterval);
+  refreshInterval = setInterval(async () => {
+    console.log('Polling for new data...');
+    const newData = await fetchChartData();
+    console.log('Polling returned data:', newData ? newData.length : 'no data');
+    console.log('First few points from polling:', newData ? newData.slice(0, 3) : 'no data');
+    console.log('Current allPoints before update:', allPoints.value.length);
+    
+    // Only update if we have data (not null)
+    if (newData !== null) {
+      updateChartData(newData);
+      console.log('Current allPoints after update:', allPoints.value.length);
+    } else {
+      console.log('No new data available, preserving existing data');
+    }
+  }, 3000); // Poll every 3 seconds for real-time updates
+}
+
+// Add method to enable polling after optimization
+function enablePolling() {
+  hasOptimizationRun = true;
+  console.log('Polling enabled after optimization run');
+  // Restart polling to ensure it's active
+  startPolling();
+}
+
 onMounted(() => {
-    createChart(); // Initialize chart with no points
-    // Remove the document click listener since we want the popup to stay until manually closed
+  createChart();
+  // Clear any existing data on mount to ensure clean start
+  allPoints.value = [];
+  updateChart();
+  startPolling();
 });
 
 onUnmounted(() => {
-    // Remove cleanup since we removed the listener
+  if (refreshInterval) {
+    clearInterval(refreshInterval);
+    refreshInterval = null;
+  }
+});
+
+watch(() => props.isComparative, () => {
+  startPolling();
+});
+
+// Watch for currentRunId changes to restart polling
+watch(() => props.currentRunId, (newRunId, oldRunId) => {
+  console.log('currentRunId changed from', oldRunId, 'to', newRunId);
+  if (newRunId && newRunId !== oldRunId) {
+    console.log('Restarting polling with new run ID:', newRunId);
+    startPolling();
+  }
+});
+
+// Watch for customPoints prop changes and merge with allPoints
+watch(() => props.customPoints, (newCustomPoints) => {
+  console.log('Custom points prop changed:', newCustomPoints.length);
+  
+  // Remove existing custom points from allPoints
+  allPoints.value = allPoints.value.filter(pt => 
+    !(pt.type === 'custom' || pt.type === 'modified' || 
+      pt.source === 'Manual' || pt.label === 'Custom Design' || 
+      pt.label === 'Modified Design' || pt.algorithm === 'Custom Design')
+  );
+  
+  // Add new custom points from props
+  if (newCustomPoints && newCustomPoints.length > 0) {
+    allPoints.value.push(...newCustomPoints);
+    console.log('Merged custom points from props. Total points:', allPoints.value.length);
+  }
+  
+  // Update chart if it exists
+  if (chartInstance) {
+    chartInstance.data.datasets = buildChartData();
+    chartInstance.update();
+  }
+}, { deep: true });
+
+// Watch for axis changes and update chart
+watch([selectedXAxis, selectedYAxis], () => {
+  if (chartInstance) {
+    // Update axis titles
+    chartInstance.options.scales.x.title.text = selectedXAxis.value;
+    chartInstance.options.scales.y.title.text = selectedYAxis.value;
+    chartInstance.update();
+  }
 });
 
 const handlePointAction = () => {
@@ -256,45 +1198,7 @@ const handlePointAction = () => {
     // Remove closing the popup
 };
 
-const handleModifyDesign = () => {
-    if (selectedPoint.value) {
-        emit('open-modify-design', {
-            initialGPU: selectedPoint.value.gpu ?? 0,
-            initialAttention: selectedPoint.value.attn ?? 0,
-            initialSparse: selectedPoint.value.sparse ?? 0,
-            initialConvolution: selectedPoint.value.conv ?? 0,
-            initialTrace: selectedPoint.value.trace ?? "",
-            x: selectedPoint.value.x,
-            y: selectedPoint.value.y,
-            xLabel: selectedXAxis.value,
-            yLabel: selectedYAxis.value,
-        });
-    }
-};
-
-const handleEvaluateModifiedDesign = async (design) => {
-    // Call the same evaluation logic as ChipletMenu
-    // For example, call the backend and update the plot
-    try {
-        // You may want to show a loading state here
-        const response = await axios.get("http://127.0.0.1:8000/api/evaluate-point-inputs/", {
-            params: {
-                GPU: design.GPU,
-                Attention: design.Attention,
-                Sparse: design.Sparse,
-                Convolution: design.Convolution,
-                trace: design.trace,
-            }
-        });
-        // Update the plot with the new data if needed
-        if (response.data && response.data.data) {
-            updateChartData(response.data.data);
-        }
-        showModifyMenu.value = false;
-    } catch (error) {
-        console.error("Error evaluating modified design:", error);
-    }
-};
+// Remove the handleModifyDesign and handleEvaluateModifiedDesign methods since they're now handled in App.vue
 </script>
 
 <template>
@@ -303,6 +1207,10 @@ const handleEvaluateModifiedDesign = async (design) => {
         <div v-if="isEvaluatingDesign" class="plot-loading-overlay">
             <div class="plot-loading-spinner"></div>
             <div class="plot-loading-text">Evaluating design...</div>
+        </div>
+        <div v-if="isComparativeLoading" class="plot-loading-overlay">
+            <div class="plot-loading-spinner"></div>
+            <div class="plot-loading-text">{{ comparativeLoadingMessage }}</div>
         </div>
         <div class="axis_select">
             <label>Y Axis:
@@ -317,21 +1225,46 @@ const handleEvaluateModifiedDesign = async (design) => {
                 </select>
             </label>
         </div>
+        
+        <!-- Zoom Controls -->
+        <div class="zoom-controls">
+            <button @click="zoomIn" class="zoom-btn" title="Zoom In">
+                <span>+</span>
+            </button>
+            <button @click="zoomOut" class="zoom-btn" title="Zoom Out">
+                <span>−</span>
+            </button>
+            <button @click="resetZoom" class="zoom-btn reset" title="Reset Zoom">
+                <span>⟲</span>
+            </button>
+        </div>
+        
+        <!-- Legend -->
+        <div class="plot-legend" ref="legendRef" @mousedown="startLegendDrag">
+          <div v-for="entry in getLegendEntries()" :key="entry.key" class="legend-entry">
+            <span class="legend-swatch" :style="{ backgroundColor: entry.color }"></span>
+            <span class="legend-label">{{ entry.label }}</span>
+          </div>
+        </div>
     </div>
 </template>
 
 <style scoped>
 .chart-container {
     width: 100%;
-    height: 100%;
+    min-height: 420px;
+    height: 520px;
     padding-top: 20px;
-    padding-bottom: 40px;
-    /* padding-bottom: 20px; */
+    padding-bottom: 16px;
     display: flex;
     flex-direction: column;
     align-items: center;
+    position: relative;
 }
-
+.plot-area {
+    min-height: 420px;
+    height: 520px;
+}
 .axis_select {
     display: flex;
     gap: 20px;
@@ -340,85 +1273,128 @@ const handleEvaluateModifiedDesign = async (design) => {
     justify-content: space-between;
 }
 
-.chart-dropdown {
-    background: white;
-    border: 1px solid #ccc;
-    padding: 15px;
-    padding-top: 0px;
-    z-index: 9999;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
-    border-radius: 4px;
-}
-
-.global-dropdown {
+.zoom-controls {
     position: absolute;
-    /* Or use `fixed` if you want it to stay visible on scroll */
+    top: 18px;
+    left: 24px;
+    display: flex;
+    gap: 4px;
+    z-index: 10;
 }
 
-.point-button {
-    margin: 3px;
-    padding: 5px 10px;
-    background: var(--primary-color);
-    color: white;
-    border: none;
-    border-radius: 4px;
+.zoom-btn {
+    width: 32px;
+    height: 32px;
+    border: 1px solid #e0e6ed;
+    background: white;
+    border-radius: 6px;
     cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    font-weight: bold;
+    color: #4a5568;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
-.modify-design-modal {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(0,0,0,0.2);
+.zoom-btn:hover {
+    background: #f8fafc;
+    border-color: #cbd5e0;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.zoom-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.zoom-btn.reset {
+    font-size: 14px;
+}
+
+.plot-legend {
+  position: absolute;
+  top: 18px;
+  right: 24px;
+  background: #fff;
+  border: 1px solid #e0e6ed;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+  padding: 0.75rem 1.25rem;
+  min-width: 180px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  cursor: move;
+  user-select: none;
+}
+.legend-entry {
   display: flex;
   align-items: center;
-  justify-content: center;
-  z-index: 2000;
+  gap: 0.5rem;
+  font-size: 1rem;
 }
-.modal-content {
-  background: white;
-  border-radius: 10px;
-  box-shadow: 0 2px 16px rgba(0,0,0,0.15);
-  padding: 2rem 2.5rem 1.5rem 2.5rem;
-  min-width: 340px;
-  max-width: 95vw;
-  position: relative;
+.legend-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid #bbb;
+  margin-right: 0.5rem;
+}
+.legend-selected {
+  background: #FFD700;
+  border: 2px solid #FFD700;
+  box-shadow: 0 0 6px #FFD700;
+}
+.legend-label {
+  color: #2d3748;
+  font-weight: 500;
+}
+.legend-note {
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+  color: #555;
 }
 
 .plot-loading-overlay {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(255, 255, 255, 0.8);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  border-radius: 8px;
 }
 
 .plot-loading-spinner {
-    width: 40px;
-    height: 40px;
-    border: 4px solid #f3f3f3;
-    border-top: 4px solid #337aff;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-    margin-bottom: 10px;
+  width: 40px;
+  height: 40px;
+  border: 4px solid #f3f3f3;
+  border-top: 4px solid #337aff;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+  margin-bottom: 1rem;
 }
 
 .plot-loading-text {
-    color: #2c3e50;
-    font-size: 1rem;
-    font-weight: 500;
+  font-size: 1rem;
+  color: #2d3748;
+  font-weight: 500;
+  text-align: center;
 }
 
 @keyframes spin {
-    0% { transform: rotate(0deg); }
-    100% { transform: rotate(360deg); }
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 </style>

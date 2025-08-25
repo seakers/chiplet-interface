@@ -1,62 +1,1428 @@
 <template>
   <div class="problem-formulation">
-    <div class="formulation-header">
-      <h3>Problem Formulation</h3>
+    <!-- Welcome Screen -->
+    <div v-if="currentView === 'welcome'" class="welcome-screen">
+      <div class="welcome-header">
+        <h1 class="problem-formulation-title">Problem Formulation</h1>
+        <h2 class="welcome-title">Welcome! What would you like to do today?</h2>
+      </div>
+      <div class="welcome-options">
+        <button class="welcome-btn primary-btn" @click="setView('new-optimization')">
+          <span class="btn-title">Start New Optimization</span>
+          <span class="btn-description">Create and run a new chiplet optimization with custom parameters</span>
+        </button>
+        <button class="welcome-btn secondary-btn" @click="setView('load-previous')">
+          <span class="btn-title">Load Previous Run</span>
+          <span class="btn-description">Continue working with results from a previous optimization session</span>
+        </button>
+        <button class="welcome-btn secondary-btn" @click="setView('comparative')">
+          <span class="btn-title">Compare two runs</span>
+          <span class="btn-description">Compare two different optimization runs side-by-side</span>
+        </button>
+      </div>
     </div>
-    <div class="formulation-content"></div>
+
+    <!-- New Optimization View -->
+    <div v-else-if="currentView === 'new-optimization'" class="optimization-view">
+      <div class="view-header">
+        <button class="back-btn" @click="setView('welcome')">← Back</button>
+        <h3 class="view-title">New Optimization</h3>
+      </div>
+      <form class="formulation-content" @submit.prevent="submitForm">
+        <div class="form-grid">
+          <div class="form-col">
+            <div class="form-group">
+              <label class="form-label" for="model">Select Model</label>
+              <select id="model" v-model="selectedModel" class="form-select" :class="{ 'error': validationErrors.model }">
+                <option value="CASCADE">CASCADE</option>
+                <option value="HISIM">HISIM</option>
+              </select>
+              <div v-if="validationErrors.model" class="field-error">{{ validationErrors.model }}</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="algorithm">Select Algorithm</label>
+              <select id="algorithm" v-model="selectedAlgorithm" class="form-select" :class="{ 'error': validationErrors.algorithm }">
+                <option value="Genetic Algorithm">Genetic Algorithm</option>
+                <option value="Full-Factorial">Full-Factorial</option>
+              </select>
+              <div v-if="validationErrors.algorithm" class="field-error">{{ validationErrors.algorithm }}</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Traces & Weights</label>
+              <div v-for="(tw, idx) in traceWeights" :key="idx" class="trace-weight-row">
+                <select v-model="tw.name" class="form-select trace-select">
+                  <option v-for="trace in traceOptions" :key="trace" :value="trace">{{ trace }}</option>
+                </select>
+                <input type="number" v-model.number="tw.weight" min="0" max="1" step="0.01" class="form-input trace-weight-input" placeholder="Weight (0-1)" />
+                <button type="button" class="remove-trace-btn" @click="removeTrace(idx)">❌</button>
+              </div>
+              <button type="button" class="add-trace-btn" @click="addTrace">+ Add Trace</button>
+              <div v-if="validationErrors.traces" class="field-error">{{ validationErrors.traces }}</div>
+            </div>
+          </div>
+          <div class="form-col">
+            <div class="form-group" style="position: relative;">
+              <label class="form-label">Select Objectives</label>
+              <div class="custom-multiselect" @click="dropdownOpen = !dropdownOpen" :class="{ 'error': validationErrors.objectives }">
+                <div class="selected-summary">
+                  {{ selectedObjectives.length ? selectedObjectives.join(', ') : 'Select objectives...' }}
+                </div>
+                <div v-if="dropdownOpen" class="dropdown-list" @click.stop>
+                  <div v-for="obj in objectivesOptions" :key="obj" class="dropdown-item">
+                    <label>
+                      <input type="checkbox" :value="obj" v-model="selectedObjectives" />
+                      {{ obj }}
+                    </label>
+                  </div>
+                </div>
+              </div>
+              <div v-if="validationErrors.objectives" class="field-error">{{ validationErrors.objectives }}</div>
+            </div>
+            <div v-if="selectedAlgorithm === 'Genetic Algorithm'" class="form-group">
+              <label class="form-label" for="population">Population Size</label>
+              <input id="population" type="number" v-model.number="populationSize" class="form-input" min="1" :class="{ 'error': validationErrors.populationSize }" />
+              <div v-if="validationErrors.populationSize" class="field-error">{{ validationErrors.populationSize }}</div>
+            </div>
+            <div v-if="selectedAlgorithm === 'Genetic Algorithm'" class="form-group">
+              <label class="form-label" for="generations">Generations</label>
+              <input id="generations" type="number" v-model.number="generations" class="form-input" min="1" :class="{ 'error': validationErrors.generations }" />
+              <div v-if="validationErrors.generations" class="field-error">{{ validationErrors.generations }}</div>
+            </div>
+            <div v-if="selectedAlgorithm === 'Full-Factorial'" class="form-group">
+              <label class="form-label" for="gridSize">Grid Size</label>
+              <input id="gridSize" type="number" v-model.number="gridSize" class="form-input" min="1" :class="{ 'error': validationErrors.gridSize }" />
+              <div v-if="validationErrors.gridSize" class="field-error">{{ validationErrors.gridSize }}</div>
+            </div>
+          </div>
+        </div>
+        <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
+        <div v-if="!isWeightSumValid" class="error-message">
+          The sum of all weights must be exactly 1.0. Current sum: {{ traceWeightsSum.toFixed(4) }}
+        </div>
+        <div class="form-actions">
+          <button type="submit" class="btn btn-primary run-btn" :disabled="loading || !isFormValid">
+            <span v-if="loading">Running...</span>
+            <span v-else>Run</span>
+          </button>
+          <button 
+            type="button" 
+            class="btn btn-secondary data-mining-btn" 
+            :disabled="!hasOptimizationData && !loading"
+            @click="runDataMining"
+          >
+            Data Mining
+          </button>
+          <button 
+            type="button" 
+            class="btn btn-secondary generate-report-btn" 
+            :disabled="!hasOptimizationData || loading"
+            @click="generateReport"
+          >
+            Generate Report
+          </button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Load Previous Run View -->
+    <div v-else-if="currentView === 'load-previous'" class="load-previous-view">
+      <div class="view-header">
+        <button class="back-btn" @click="setView('welcome')">← Back</button>
+        <h3 class="view-title">Load Previous Run</h3>
+      </div>
+      <div class="load-previous-content">
+        <p class="load-previous-description">Select a previous optimization run to load and analyze:</p>
+        <div class="form-group">
+          <label class="form-label" for="previous-run">Select Run</label>
+          <select id="previous-run" v-model="selectedPreviousRun" class="form-select" :disabled="loadingBackupFiles">
+            <option value="">
+              {{ loadingBackupFiles ? 'Loading previous runs...' : 'Choose a run...' }}
+            </option>
+            <option v-for="run in previousRuns" :key="run.id" :value="run.filename">
+              {{ run.name }}
+            </option>
+          </select>
+          <div v-if="loadingBackupFiles" class="loading-indicator">
+            Loading previous optimization runs...
+          </div>
+          <div v-else-if="previousRuns.length === 0" class="no-runs-message">
+            No previous optimization runs found.
+          </div>
+        </div>
+        
+        <!-- Loaded Run Configuration Display -->
+        <div v-if="loadedRunMetadata" class="loaded-run-config">
+          <h4 class="config-title">Loaded Run Configuration</h4>
+          <div class="config-grid">
+            <div class="config-item">
+              <span class="config-label">Model:</span>
+              <span class="config-value">{{ loadedRunMetadata.model || 'N/A' }}</span>
+            </div>
+            <div class="config-item">
+              <span class="config-label">Algorithm:</span>
+              <span class="config-value">{{ loadedRunMetadata.algorithm || 'N/A' }}</span>
+            </div>
+            <div class="config-item">
+              <span class="config-label">Objectives:</span>
+              <span class="config-value">{{ formatObjectives(loadedRunMetadata.objectives) }}</span>
+            </div>
+            <div class="config-item">
+              <span class="config-label">Traces:</span>
+              <span class="config-value">{{ formatTraces(loadedRunMetadata.traces) }}</span>
+            </div>
+            <div v-if="loadedRunMetadata.population_size" class="config-item">
+              <span class="config-label">Population Size:</span>
+              <span class="config-value">{{ loadedRunMetadata.population_size }}</span>
+            </div>
+            <div v-if="loadedRunMetadata.generations" class="config-item">
+              <span class="config-label">Generations:</span>
+              <span class="config-value">{{ loadedRunMetadata.generations }}</span>
+            </div>
+            <div class="config-item">
+              <span class="config-label">Timestamp:</span>
+              <span class="config-value">{{ formatTimestamp(loadedRunMetadata.timestamp) }}</span>
+            </div>
+          </div>
+        </div>
+        
+        <div class="form-actions">
+          <button class="btn btn-primary" :disabled="!selectedPreviousRun" @click="loadPreviousRun">
+            Load Run
+          </button>
+          <button 
+            type="button" 
+            class="btn btn-secondary restart-run-btn" 
+            :disabled="!hasOptimizationData || !loadedRunMetadata"
+            @click="restartRun"
+          >
+            Restart Run
+          </button>
+          <button 
+            type="button" 
+            class="btn btn-secondary data-mining-btn" 
+            :disabled="!hasOptimizationData"
+            @click="runDataMining"
+          >
+            Data Mining
+          </button>
+          <button 
+            type="button" 
+            class="btn btn-secondary generate-report-btn" 
+            :disabled="!hasOptimizationData || loading"
+            @click="generateReport"
+          >
+            Generate Report
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Comparative Study View -->
+    <div v-else-if="currentView === 'comparative'" class="comparative-view">
+      <ComparativeStudy 
+        @back="setView('welcome')"
+        @open-data-mining="handleOpenDataMining"
+        @report-generated="handleComparativeReportGenerated"
+      />
+    </div>
   </div>
 </template>
 
 <script>
+import { runOptimization } from '../services/optimization.js';
+import { ref, defineComponent, watch } from 'vue';
+import { getRuleMining, getDistanceCorrelation } from '../services/analytics.js';
+import { generateOptimizationReport } from '../services/analytics.js';
+import axios from 'axios';
+import ComparativeStudy from './ComparativeStudy.vue';
+
+// Extracted run form as a subcomponent for reuse
+const RunForm = defineComponent({
+  name: 'RunForm',
+  props: {
+    model: String,
+    algorithm: String,
+    traceWeights: Array,
+    selectedObjectives: Array,
+    populationSize: Number,
+    generations: Number,
+    gridSize: Number,
+    traceOptions: Array,
+    objectivesOptions: Array,
+    loading: Boolean,
+    errorMessage: String,
+  },
+  emits: [
+    'update:model', 'update:algorithm', 'update:traceWeights', 'update:selectedObjectives',
+    'update:populationSize', 'update:generations', 'update:gridSize'
+  ],
+  setup(props, { emit }) {
+    // ... (implement v-model bindings for each prop)
+    // For brevity, this is a placeholder. In real code, use computed setters/getters for v-model.
+    return {};
+  },
+  template: `
+    <div class="form-grid">
+      <div class="form-col">
+        <div class="form-group">
+          <label class="form-label">Select Model</label>
+          <select v-model="$props.model" class="form-select">
+            <option value="CASCADE">CASCADE</option>
+            <option value="HISIM">HISIM</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Select Algorithm</label>
+          <select v-model="$props.algorithm" class="form-select">
+            <option value="Genetic Algorithm">Genetic Algorithm</option>
+            <option value="Full-Factorial">Full-Factorial</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Traces & Weights</label>
+          <div v-for="(tw, idx) in $props.traceWeights" :key="idx" class="trace-weight-row">
+            <select v-model="tw.name" class="form-select trace-select">
+              <option v-for="trace in $props.traceOptions" :key="trace" :value="trace">{{ trace }}</option>
+            </select>
+            <input type="number" v-model.number="tw.weight" min="0" max="1" step="0.01" class="form-input trace-weight-input" placeholder="Weight (0-1)" />
+            <button type="button" class="remove-trace-btn" @click="$props.traceWeights.splice(idx, 1)">❌</button>
+          </div>
+          <button type="button" class="add-trace-btn" @click="$props.traceWeights.push({ name: $props.traceOptions[0], weight: 1.0 })">+ Add Trace</button>
+        </div>
+      </div>
+      <div class="form-col">
+        <div class="form-group" style="position: relative;">
+          <label class="form-label">Select Objectives</label>
+          <div class="custom-multiselect">
+            <div class="selected-summary">
+              {{$props.selectedObjectives.length ? $props.selectedObjectives.join(', ') : 'Select objectives...'}}
+            </div>
+            <!-- For brevity, not implementing dropdown here -->
+          </div>
+        </div>
+        <div v-if="$props.algorithm === 'Genetic Algorithm'" class="form-group">
+          <label class="form-label">Population Size</label>
+          <input type="number" v-model.number="$props.populationSize" class="form-input" min="1" />
+        </div>
+        <div v-if="$props.algorithm === 'Genetic Algorithm'" class="form-group">
+          <label class="form-label">Generations</label>
+          <input type="number" v-model.number="$props.generations" class="form-input" min="1" />
+        </div>
+        <div v-if="$props.algorithm === 'Full-Factorial'" class="form-group">
+          <label class="form-label">Grid Size</label>
+          <input type="number" v-model.number="$props.gridSize" class="form-input" min="1" />
+        </div>
+      </div>
+    </div>
+  `
+});
+
 export default {
   name: 'ProblemFormulation',
+  components: {
+    RunForm,
+    ComparativeStudy
+  },
+  emits: ['optimization-success', 'data-mining-complete', 'report-generated', 'run-id-updated', 'view-changed'],
   data() {
     return {
-      // Empty for now
+      currentView: 'welcome', // 'welcome', 'new-optimization', 'load-previous', 'comparative'
+      runAForm: {
+        model: 'CASCADE',
+        algorithm: 'Genetic Algorithm',
+        traceWeights: [{ name: 'gpt-j-65536-weighted', weight: 1.0 }],
+        selectedObjectives: [],
+        populationSize: 50,
+        generations: 100,
+        gridSize: 10,
+        dropdownOpen: false,
+      },
+      runBForm: {
+        model: 'CASCADE',
+        algorithm: 'Genetic Algorithm',
+        traceWeights: [{ name: 'gpt-j-65536-weighted', weight: 1.0 }],
+        selectedObjectives: [],
+        populationSize: 50,
+        generations: 100,
+        gridSize: 10,
+        dropdownOpen: false,
+      },
+      sharedConfig: {
+        model: 'CASCADE',
+        algorithm: 'Genetic Algorithm',
+        selectedObjectives: [],
+        populationSize: 50,
+        generations: 100,
+        gridSize: 10,
+        dropdownOpen: false,
+      },
+      selectedModel: 'CASCADE',
+      selectedAlgorithm: 'Genetic Algorithm',
+      populationSize: 50,
+      generations: 100,
+      gridSize: 10,
+      dropdownOpen: false,
+      selectedObjectives: [],
+      objectivesOptions: [
+        'Energy',
+        'Runtime',
+        'Temperature',
+        'Area',
+        'Latency',
+        'Throughput',
+      ],
+      traceOptions: [
+        "gpt-j-65536-weighted",
+        "gpt-j-1024-weighted",
+        "sd-test",
+        "ogbn-products-test",
+        "resnet50-test"
+      ],
+      traceWeights: [
+        { name: 'gpt-j-65536-weighted', weight: 1.0 }
+      ],
+      loading: false,
+      errorMessage: '',
+      hasOptimizationData: false, // Track if optimization has completed and data is available
+      currentRunId: '', // Track the current run ID for polling
+      validationErrors: {}, // Track validation errors for each field
+      previousRuns: [], // Will be populated dynamically from backup files
+      selectedPreviousRun: '',
+      loadingBackupFiles: false, // Track loading state for backup files
+      loadedRunMetadata: null, // Will store metadata of the loaded run
+    };
+  },
+  computed: {
+    canRunComparative() {
+      return (
+        this.sharedConfig.selectedObjectives.length > 0 &&
+        this.runAForm.traceWeights.length > 0 &&
+        this.runBForm.traceWeights.length > 0
+      );
+    },
+    traceWeightsSum() {
+      return this.traceWeights.reduce((sum, tw) => sum + Number(tw.weight || 0), 0);
+    },
+    isWeightSumValid() {
+      return Math.abs(this.traceWeightsSum - 1.0) < 1e-6;
+    },
+    // New validation computed properties
+    isFormValid() {
+      return this.validateForm().isValid;
+    },
+    validationSummary() {
+      return this.validateForm().errors;
     }
   },
   methods: {
-    saveFormulation() {
-      // To be implemented based on requirements
-      this.$emit('save-formulation', {});
+    validateForm() {
+      const errors = {};
+      let isValid = true;
+
+      // Check model selection
+      if (!this.selectedModel) {
+        errors.model = 'Model selection is required';
+        isValid = false;
+      }
+
+      // Check algorithm selection
+      if (!this.selectedAlgorithm) {
+        errors.algorithm = 'Algorithm selection is required';
+        isValid = false;
+      }
+
+      // Check objectives selection
+      if (!this.selectedObjectives || this.selectedObjectives.length === 0) {
+        errors.objectives = 'At least one objective must be selected';
+        isValid = false;
+      }
+
+      // Check traces and weights
+      if (!this.traceWeights || this.traceWeights.length === 0) {
+        errors.traces = 'At least one trace must be added';
+        isValid = false;
+      } else {
+        // Check if all traces have names
+        const invalidTraces = this.traceWeights.filter(tw => !tw.name);
+        if (invalidTraces.length > 0) {
+          errors.traces = 'All traces must have names';
+          isValid = false;
+        }
+
+        // Check weight sum
+        if (!this.isWeightSumValid) {
+          errors.traces = `Sum of weights must be exactly 1.0. Current sum: ${this.traceWeightsSum.toFixed(4)}`;
+          isValid = false;
+        }
+      }
+
+      // Check algorithm-specific parameters
+      if (this.selectedAlgorithm === 'Genetic Algorithm') {
+        if (!this.populationSize || this.populationSize < 1) {
+          errors.populationSize = 'Population size must be at least 1';
+          isValid = false;
+        }
+        if (!this.generations || this.generations < 1) {
+          errors.generations = 'Number of generations must be at least 1';
+          isValid = false;
+        }
+      } else if (this.selectedAlgorithm === 'Full-Factorial') {
+        if (!this.gridSize || this.gridSize < 1) {
+          errors.gridSize = 'Grid size must be at least 1';
+          isValid = false;
+        }
+      }
+
+      return { isValid, errors };
+    },
+    setView(view) {
+      this.currentView = view;
+      this.errorMessage = ''; // Clear error message when changing views
+      this.loading = false; // Reset loading state
+      
+      // Emit view change event to parent component
+      this.$emit('view-changed', view);
+    },
+    addTrace() {
+      this.traceWeights.push({ name: this.traceOptions[0], weight: 1.0 });
+    },
+    removeTrace(idx) {
+      this.traceWeights.splice(idx, 1);
+    },
+    async submitForm() {
+      // Clear previous errors
+      this.errorMessage = '';
+      this.validationErrors = {};
+      
+      // Validate form
+      const validation = this.validateForm();
+      if (!validation.isValid) {
+        this.validationErrors = validation.errors;
+        this.errorMessage = 'Please fix the validation errors below.';
+        return;
+      }
+      
+      this.loading = true;
+      this.hasOptimizationData = false; // Reset data availability when starting new optimization
+      this.currentRunId = ''; // Reset run ID
+      
+      const payload = {
+        model: this.selectedModel,
+        algorithm: this.selectedAlgorithm,
+        objectives: this.selectedObjectives,
+        traces: this.traceWeights.map(tw => ({ name: tw.name, weight: tw.weight })),
+        population_size: this.populationSize,
+        generations: this.generations,
+      };
+      
+      try {
+        const response = await runOptimization(payload);
+        console.log('ProblemFormulation: Raw response:', response);
+        console.log('ProblemFormulation: Response type:', typeof response);
+        console.log('ProblemFormulation: Response keys:', Object.keys(response));
+        console.log('ProblemFormulation: Response.data:', response.data);
+        console.log('ProblemFormulation: Response.data type:', typeof response.data);
+        console.log('ProblemFormulation: Response.data keys:', response.data ? Object.keys(response.data) : 'no data');
+        
+        this.loading = false;
+        this.hasOptimizationData = true; // Set data availability
+        this.currentRunId = response.data.run_directory; // Store the run ID for polling
+        
+        console.log('ProblemFormulation: Optimization successful');
+        console.log('ProblemFormulation: Response data:', response.data);
+        console.log('ProblemFormulation: Run directory:', response.data.run_directory);
+        console.log('ProblemFormulation: Current run ID set to:', this.currentRunId);
+        
+        // Emit event for parent/plot update if needed
+        this.$emit('optimization-success', response.data);
+        console.log('ProblemFormulation: Emitting run-id-updated with:', this.currentRunId);
+        this.$emit('run-id-updated', this.currentRunId); // Emit run-id-updated
+      } catch (error) {
+        this.loading = false;
+        this.errorMessage = error.response?.data?.error || 'Failed to run optimization.';
+      }
+    },
+    async loadPreviousRun() {
+      if (!this.selectedPreviousRun) return;
+      this.loading = true;
+      this.hasOptimizationData = false; // Reset data availability when loading previous run
+      this.currentRunId = ''; // Reset current run ID
+      this.loadedRunMetadata = null; // Clear previous metadata
+      
+      try {
+        // Call the new load_previous_run endpoint
+        const response = await axios.post('/api/load-previous-run/', {
+          backup_filename: this.selectedPreviousRun
+        });
+        
+        if (response.data.status === 'success') {
+          this.loading = false;
+          this.hasOptimizationData = true; // Set data availability
+          this.currentRunId = response.data.run_id; // Set current run ID
+          this.loadedRunMetadata = response.data.metadata; // Store metadata
+          
+          // Emit the loaded data to parent component
+          this.$emit('optimization-success', {
+            data: response.data.points,
+            plot_data: response.data.points,
+            run_directory: response.data.run_id,
+            loaded_from_backup: true,
+            backup_filename: response.data.backup_filename,
+            has_zip_file: response.data.has_zip_file
+          });
+          
+          // Emit run ID update
+          this.$emit('run-id-updated', response.data.run_id);
+          
+          console.log('Successfully loaded previous run:', response.data);
+        } else {
+          throw new Error(response.data.message || 'Failed to load previous run');
+        }
+      } catch (error) {
+        this.loading = false;
+        this.errorMessage = error.response?.data?.message || error.message || 'Failed to load previous run.';
+        console.error('Error loading previous run:', error);
+      }
+    },
+    async fetchBackupFiles() {
+      this.loadingBackupFiles = true;
+      try {
+        const response = await axios.get('/api/list-backup-files/');
+        if (response.data.status === 'success') {
+          this.previousRuns = response.data.backup_files.map(backup => ({
+            id: backup.filename,
+            name: backup.display_name,
+            date: backup.timestamp,
+            filename: backup.filename
+          }));
+          console.log('Loaded backup files:', this.previousRuns);
+        } else {
+          throw new Error(response.data.message || 'Failed to fetch backup files');
+        }
+      } catch (error) {
+        console.error('Error fetching backup files:', error);
+        this.errorMessage = 'Failed to load previous optimization runs.';
+      } finally {
+        this.loadingBackupFiles = false;
+      }
+    },
+    submitComparative() {
+      console.log('Comparative Study button clicked');
+      const payload = {
+        comparative_study: true,
+        model: this.sharedConfig.model,
+        algorithm: this.sharedConfig.algorithm,
+        population_size: this.sharedConfig.populationSize,
+        generations: this.sharedConfig.generations,
+        objectives: this.sharedConfig.selectedObjectives,
+        trace_sets: {
+          A: {
+            traces: this.runAForm.traceWeights.map(tw => tw.name),
+            weights: this.runAForm.traceWeights.map(tw => tw.weight)
+          },
+          B: {
+            traces: this.runBForm.traceWeights.map(tw => tw.name),
+            weights: this.runBForm.traceWeights.map(tw => tw.weight)
+          }
+        }
+      };
+      console.log('Comparative payload:', payload);
+      this.loading = true;
+      this.hasOptimizationData = false; // Reset data availability when starting new optimization
+      runOptimization(payload)
+        .then(response => {
+          this.loading = false;
+          this.hasOptimizationData = true; // Set data availability
+          this.$emit('optimization-success', response.data); // ✅ Add this line
+          this.$emit('run-id-updated', response.data.run_directory); // Emit run-id-updated
+        })
+        .catch(error => {
+          this.loading = false;
+          this.errorMessage = error.response?.data?.error || 'Failed to run comparative study.';
+        });
+    },
+    handleClickOutside(event) {
+      if (!this.$el.contains(event.target)) {
+        this.dropdownOpen = false;
+      }
+    },
+    async runDataMining() {
+      if (!this.hasOptimizationData) return;
+      
+      try {
+        this.loading = true;
+        console.log('Running Data Mining...');
+        
+        // Prepare parameters for data mining
+        let miningParams = {};
+        
+        // Check if this is a loaded run and pass the correct file path
+        if (this.currentRunId && this.currentRunId.startsWith('loaded_run_')) {
+          // For loaded runs, use the temporary file path
+          const tempFilePath = `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${this.currentRunId}.csv`;
+          miningParams.file_path = tempFilePath;
+          console.log('Using loaded run file for data mining:', tempFilePath);
+        }
+        
+        // Run rule mining
+        const ruleMiningResponse = await getRuleMining(miningParams);
+        console.log('Rule Mining Results:', ruleMiningResponse);
+        
+        // Run distance correlation
+        const distanceCorrResponse = await getDistanceCorrelation(miningParams);
+        console.log('Distance Correlation Results:', distanceCorrResponse);
+        
+        // Emit the results to parent component for display
+        this.$emit('data-mining-complete', {
+          ruleMining: ruleMiningResponse,
+          distanceCorrelation: distanceCorrResponse
+        });
+        
+        this.loading = false;
+      } catch (error) {
+        console.error('Data Mining Error:', error);
+        this.errorMessage = 'Failed to run data mining analysis.';
+        this.loading = false;
+      }
+    },
+    async generateReport() {
+      if (!this.hasOptimizationData) return;
+      
+      try {
+        this.loading = true;
+        console.log('Generating Report...');
+        
+        let reportResponse;
+        
+        // Check if this is a loaded run (has backup_filename)
+        if (this.currentRunId && this.currentRunId.startsWith('loaded_run_')) {
+          // For loaded runs, get the report from the zip file
+          const backupFilename = this.selectedPreviousRun;
+          if (backupFilename) {
+            console.log('Getting report for loaded run:', backupFilename);
+            const response = await axios.get('/api/get-previous-run-report/', {
+              params: { backup_filename: backupFilename }
+            });
+            
+            if (response.data.status === 'success') {
+              reportResponse = {
+                status: 'success',
+                report_content: response.data.report_content,
+                metadata: response.data.metadata,
+                web_link: response.data.web_link,
+                download_link: response.data.download_link,
+                loaded_from_backup: true
+              };
+            } else {
+              throw new Error(response.data.message || 'Failed to get report for loaded run');
+            }
+          } else {
+            throw new Error('No backup filename available for loaded run');
+          }
+        } else {
+          // For current runs, generate a new report
+          reportResponse = await generateOptimizationReport(this.currentRunId);
+        }
+        
+        console.log('Report Generated:', reportResponse);
+        
+        // Emit the report result to parent component
+        this.$emit('report-generated', reportResponse);
+        
+        this.loading = false;
+      } catch (error) {
+        console.error('Report Generation Error:', error);
+        this.errorMessage = 'Failed to generate report.';
+        this.loading = false;
+      }
+    },
+    handleOpenDataMining() {
+      this.runDataMining();
+    },
+    handleComparativeReportGenerated(report) {
+      this.$emit('report-generated', report);
+    },
+    formatObjectives(objectives) {
+      if (!objectives || objectives.length === 0) {
+        return 'N/A';
+      }
+      return objectives.join(', ');
+    },
+    formatTraces(traces) {
+      if (!traces || traces.length === 0) {
+        return 'N/A';
+      }
+      return traces.map(t => t.name).join(', ');
+    },
+    formatTimestamp(timestamp) {
+      if (!timestamp) {
+        return 'N/A';
+      }
+      const date = new Date(timestamp);
+      return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+    },
+    async restartRun() {
+      if (!this.loadedRunMetadata) {
+        this.errorMessage = 'No previous run data to restart from.';
+        return;
+      }
+
+      this.loading = true;
+      this.errorMessage = '';
+      this.validationErrors = {};
+
+      // Re-initialize forms with loaded data
+      this.selectedModel = this.loadedRunMetadata.model || 'CASCADE';
+      this.selectedAlgorithm = this.loadedRunMetadata.algorithm || 'Genetic Algorithm';
+      this.selectedObjectives = this.loadedRunMetadata.objectives || [];
+      this.populationSize = this.loadedRunMetadata.population_size || 50;
+      this.generations = this.loadedRunMetadata.generations || 100;
+      this.gridSize = this.loadedRunMetadata.grid_size || 10;
+
+      // Re-initialize trace weights and names
+      this.traceWeights = this.loadedRunMetadata.traces.map(trace => ({
+        name: trace.name,
+        weight: trace.weight
+      }));
+
+      // Validate the form to ensure all data is correct
+      const validation = this.validateForm();
+      if (!validation.isValid) {
+        this.validationErrors = validation.errors;
+        this.errorMessage = 'Please fix the validation errors below to restart the run.';
+        this.loading = false;
+        return;
+      }
+
+      // Get the loaded points data to use as initial population
+      // We need to extract the design variables (gpu, attn, sparse, conv) from the loaded points
+      let initialPopulation = null;
+      if (this.currentRunId && this.currentRunId.startsWith('loaded_run_')) {
+        try {
+          // Get the loaded points data from the parent component or stored data
+          const response = await axios.post('/api/load-previous-run/', {
+            backup_filename: this.selectedPreviousRun
+          });
+          
+          if (response.data.status === 'success' && response.data.points) {
+            // Convert chiplet counts to 12-element array format expected by GA
+            // Each element represents a slot: 0=GPU, 1=Attention, 2=Sparse, 3=Convolution
+            initialPopulation = response.data.points.map(point => {
+              const gpu = point.gpu || 0;
+              const attn = point.attn || 0;
+              const sparse = point.sparse || 0;
+              const conv = point.conv || 0;
+              
+              // Create 12-element array
+              const slotArray = [];
+              
+              // Add GPU slots (0)
+              for (let i = 0; i < gpu; i++) {
+                slotArray.push(0);
+              }
+              
+              // Add Attention slots (1)
+              for (let i = 0; i < attn; i++) {
+                slotArray.push(1);
+              }
+              
+              // Add Sparse slots (2)
+              for (let i = 0; i < sparse; i++) {
+                slotArray.push(2);
+              }
+              
+              // Add Convolution slots (3)
+              for (let i = 0; i < conv; i++) {
+                slotArray.push(3);
+              }
+              
+              // Fill remaining slots with GPU (0) to reach 12 total
+              while (slotArray.length < 12) {
+                slotArray.push(0);
+              }
+              
+              return slotArray;
+            });
+            console.log('Converted initial population to 12-element format:', initialPopulation);
+          }
+        } catch (error) {
+          console.warn('Could not load points for initial population:', error);
+          // Continue without initial population if there's an error
+        }
+      }
+
+      // Prepare payload for new optimization with initial population
+      const payload = {
+        model: this.selectedModel,
+        algorithm: this.selectedAlgorithm,
+        objectives: this.selectedObjectives,
+        traces: this.traceWeights.map(tw => ({ name: tw.name, weight: tw.weight })),
+        population_size: this.populationSize,
+        generations: this.generations,
+        initial_population: initialPopulation // Add initial population if available
+      };
+
+      try {
+        const response = await runOptimization(payload);
+        console.log('ProblemFormulation: Restart optimization successful');
+        console.log('ProblemFormulation: Response data:', response.data);
+        
+        this.loading = false;
+        this.hasOptimizationData = true; // Set data availability
+        this.currentRunId = response.data.run_directory; // Store the run ID for polling
+        
+        // Emit event for parent/plot update if needed
+        this.$emit('optimization-success', response.data);
+        this.$emit('run-id-updated', this.currentRunId);
+        
+        // Switch to the new optimization view to show results
+        this.setView('new-optimization');
+      } catch (error) {
+        this.loading = false;
+        this.errorMessage = error.response?.data?.error || 'Failed to restart optimization.';
+        console.error('Error restarting optimization:', error);
+      }
+    }
+  },
+  mounted() {
+    document.addEventListener('click', this.handleClickOutside);
+    this.fetchBackupFiles(); // Fetch backup files on mount
+  },
+  beforeDestroy() {
+    document.removeEventListener('click', this.handleClickOutside);
+  },
+  watch: {
+    currentView(newView) {
+      // Emit view change event to parent component
+      this.$emit('view-changed', newView);
     }
   }
-}
+};
 </script>
 
 <style scoped>
 .problem-formulation {
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  padding: 1.5rem;
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
   width: 100%;
-  /* max-width: 800px; */
-  margin: 0 auto;
-  overflow: hidden;
-  box-sizing: border-box;
-  height: 100%;
-  max-height: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
 }
-
-.formulation-header {
+.welcome-screen {
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 300px;
+}
+.optimization-view, .load-previous-view, .comparative-view {
+  width: 100%;
+}
+.welcome-header {
+  margin-bottom: 2.5rem;
+}
+.problem-formulation-title {
+  margin: 0 0 1rem 0;
+  font-size: 2rem;
+  font-weight: 700;
+  color: #2c3e50;
+  line-height: 1.3;
+}
+.welcome-title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 400;
+  color: #2c3e50;
+  line-height: 1.3;
+}
+.welcome-options {
+  display: flex;
+  flex-direction: row;
+  gap: 1.5rem;
+  width: 100%;
+  max-width: 900px;
+}
+.primary-action {
+  width: 100%;
+}
+.secondary-actions {
+  display: flex;
+  gap: 1.5rem;
+  width: 100%;
+}
+.welcome-btn {
+  flex: 1;
+  padding: 1.5rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 12px;
+  border: none;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.5rem;
+  min-height: 140px;
+  justify-content: center;
+}
+.primary-btn {
+  background: #337aff;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(51, 122, 255, 0.25);
+  font-size: 1.1rem;
+  font-weight: 700;
+  padding: 2rem;
+}
+.primary-btn:hover {
+  background: #2356b8;
+  box-shadow: 0 6px 20px rgba(51, 122, 255, 0.35);
+  transform: translateY(-2px);
+}
+.secondary-btn {
+  background: #fff;
+  color: #337aff;
+  border: 2px solid #337aff;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+}
+.secondary-btn:hover {
+  background: #f8f9ff;
+  border-color: #2356b8;
+  color: #2356b8;
+  box-shadow: 0 4px 12px rgba(44, 62, 80, 0.12);
+  transform: translateY(-1px);
+}
+.btn-title {
+  font-weight: 700;
+  font-size: 1.1rem;
+}
+.btn-description {
+  font-size: 0.9rem;
+  opacity: 0.8;
+  line-height: 1.4;
+  max-width: 200px;
+}
+.primary-btn .btn-description {
+  color: rgba(255, 255, 255, 0.9);
+}
+.secondary-btn .btn-description {
+  color: #6b7280;
+}
+.view-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 1.5rem;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid #eee;
 }
-
-.formulation-header h3 {
+.view-title {
   margin: 0;
   font-size: 1.4rem;
+  font-weight: 700;
   color: #2c3e50;
 }
-
-.formulation-content {
-  min-height: 100px;
+.back-btn {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #e0e6ed;
+  border-radius: 6px;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.back-btn:hover {
+  background: #e0e6ed;
+}
+.load-previous-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
   width: 100%;
-  overflow: hidden;
+  max-width: 600px;
+}
+.load-previous-description {
+  font-size: 1.1rem;
+  color: #34495e;
+  margin-bottom: 1rem;
+}
+.formulation-content {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.form-grid {
+  display: flex;
+  flex-direction: row;
+  gap: 2rem;
+  width: 100%;
+}
+.form-col {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.form-label {
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 0.2rem;
+}
+.form-select, .form-input {
+  border: 1px solid #e0e6ed;
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 1rem;
+  background: #f9fafb;
+  color: #2d3748;
+  outline: none;
+  transition: border 0.2s;
+}
+.form-select:focus, .form-input:focus {
+  border-color: #337aff;
+}
+.form-select.error, .form-input.error, .custom-multiselect.error {
+  border-color: #dc2626;
+  background-color: #fef2f2;
+}
+.field-error {
+  font-size: 0.8rem;
+  color: #dc2626;
+  margin-top: 0.2rem;
+  font-weight: 500;
+}
+.btn {
+  display: inline-block;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 0.6rem 1.4rem;
+  font-size: 1rem;
+  transition: background 0.2s, box-shadow 0.2s;
+  border: none;
+  outline: none;
+}
+.btn-primary {
+  background: #337aff;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.10);
+  cursor: pointer;
+}
+.btn-primary:hover:not(:disabled) {
+  background: #2356b8;
+}
+.btn-primary:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+.btn-secondary {
+  background: transparent;
+  color: #337aff;
+  border: 1.5px solid #337aff;
+  box-shadow: none;
+}
+.btn-secondary:hover:not(:disabled) {
+  background: #eaf1ff;
+  color: #2356b8;
+  border-color: #2356b8;
+}
+.btn-secondary:disabled {
+  background: #f5f5f5;
+  color: #ccc;
+  border-color: #ccc;
+  cursor: not-allowed;
+}
+.run-btn {
+  min-width: 80px;
+}
+.data-mining-btn {
+  min-width: 120px;
+}
+.generate-report-btn {
+  min-width: 140px;
+}
+.form-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-start;
+  align-items: center;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid #e0e6ed;
+}
+.custom-multiselect {
+  border: 1px solid #e0e6ed;
+  border-radius: 6px;
+  background: #f9fafb;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  position: relative;
+  min-height: 2.5rem;
+}
+.selected-summary {
+  color: #2d3748;
+  font-size: 1rem;
+}
+.dropdown-list {
+  position: absolute;
+  left: 0;
+  top: 110%;
+  background: #fff;
+  border: 1px solid #e0e6ed;
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.10);
+  z-index: 10;
+  min-width: 200px;
+  padding: 0.5rem 0;
+}
+.dropdown-item {
+  padding: 0.25rem 1rem;
+  font-size: 1rem;
+}
+.dropdown-item label {
+  cursor: pointer;
+  user-select: none;
+}
+.error-message {
+  color: #dc2626;
+  background: #fee2e2;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  margin: 1rem 0 0.5rem 0;
+  font-weight: 600;
+  text-align: center;
+}
+.trace-weight-row {
   display: flex;
   align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.trace-select {
+  min-width: 180px;
+}
+.trace-weight-input {
+  width: 90px;
+}
+.remove-trace-btn {
+  background: none;
+  border: none;
+  color: #dc2626;
+  font-size: 1.2rem;
+  cursor: pointer;
+  margin-left: 0.2rem;
+}
+.add-trace-btn {
+  margin-top: 0.3rem;
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #e0e6ed;
+  border-radius: 5px;
+  padding: 0.3rem 0.9rem;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.add-trace-btn:hover {
+  background: #e0e6ed;
+}
+.comparative-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+  width: 100%;
+  margin-bottom: 2rem;
+}
+.comparative-col {
+  flex: 1 1 0;
+  min-width: 320px;
+  max-width: 500px;
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 1.5rem 1.2rem;
+  box-shadow: 0 1px 4px rgba(44, 62, 80, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.comparative-label {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: #337aff;
+  margin-bottom: 1rem;
+}
+.comparative-actions {
+  margin-top: 1.5rem;
   justify-content: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.comparative-shared-config {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 1.5rem 1.2rem;
+  box-shadow: 0 1px 4px rgba(44, 62, 80, 0.06);
+  margin-bottom: 2rem;
+}
+.comparative-runs-row {
+  display: flex;
+  gap: 2.5rem;
+  width: 100%;
+}
+.flex-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.comparative-toggle-row {
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #eee;
+}
+.comparative-toggle {
+  font-size: 1.1rem;
+  color: #337aff;
+  cursor: pointer;
+  user-select: none;
+}
+.comparative-toggle input {
+  margin-right: 0.5rem;
+}
+.loading-indicator {
+  font-size: 0.9rem;
+  color: #6b7280;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+.no-runs-message {
+  font-size: 0.9rem;
+  color: #6b7280;
+  margin-top: 0.5rem;
+  text-align: center;
+}
+.loaded-run-config {
+  background: #f9fafb;
+  border-radius: 8px;
+  padding: 1.5rem 1.2rem;
+  box-shadow: 0 1px 4px rgba(44, 62, 80, 0.06);
+  margin-top: 1.5rem;
+}
+.config-title {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #337aff;
+  margin-bottom: 1rem;
+}
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.75rem;
+}
+.config-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.config-label {
+  font-weight: 600;
+  color: #374151;
+  font-size: 0.9rem;
+}
+.config-value {
+  font-size: 0.9rem;
+  color: #2d3748;
+  font-weight: 500;
+}
+.restart-run-btn {
+  background: transparent;
+  color: #337aff;
+  border: 1.5px solid #337aff;
+  box-shadow: none;
+}
+.restart-run-btn:hover:not(:disabled) {
+  background: #eaf1ff;
+  color: #2356b8;
+  border-color: #2356b8;
+}
+.restart-run-btn:disabled {
+  background: #f5f5f5;
+  color: #ccc;
+  border-color: #ccc;
+  cursor: not-allowed;
+}
+@media (max-width: 900px) {
+  .form-grid {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .form-actions {
+    justify-content: center;
+  }
+  .comparative-runs-row {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .welcome-title {
+    font-size: 1.4rem;
+  }
+  .welcome-options {
+    flex-direction: column;
+    gap: 1rem;
+    max-width: 500px;
+  }
+  .welcome-btn {
+    padding: 1.2rem 1.5rem;
+    min-height: auto;
+  }
+  .primary-btn {
+    padding: 1.5rem;
+  }
+  .btn-title {
+    font-size: 1rem;
+  }
+  .btn-description {
+    font-size: 0.85rem;
+    max-width: 100%;
+  }
+}
+@media (max-width: 1000px) {
+  .problem-formulation {
+    max-width: 100%;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  .welcome-title {
+    font-size: 1.5rem;
+  }
+  .welcome-options {
+    max-width: 500px;
+  }
+}
+@media (max-width: 1100px) {
+  .comparative-runs-row {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  .comparative-col {
+    max-width: 100%;
+    min-width: 0;
+  }
 }
 </style> 

@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run Manager Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+        .test-container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+        .test-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .test-button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        .test-button:hover {
+            background: #0056b3;
+        }
+        .test-result {
+            margin-top: 15px;
+            padding: 10px;
+            background: #f8f9fa;
+            border-radius: 4px;
+            border-left: 4px solid #007bff;
+        }
+        .error {
+            border-left-color: #dc3545;
+            background: #f8d7da;
+        }
+        .success {
+            border-left-color: #28a745;
+            background: #d4edda;
+        }
+        pre {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1>Run Manager API Test</h1>
+        <p>This page tests the Run Manager API endpoints to verify they work correctly.</p>
+        
+        <div class="test-section">
+            <div class="test-title">1. Get Run Statistics</div>
+            <button class="test-button" onclick="testGetStatistics()">Get Statistics</button>
+            <div id="statistics-result" class="test-result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <div class="test-title">2. List All Runs</div>
+            <button class="test-button" onclick="testListRuns()">List Runs</button>
+            <div id="runs-result" class="test-result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <div class="test-title">3. Search Runs</div>
+            <input type="text" id="search-query" placeholder="Search query..." style="padding: 8px; margin-right: 10px;">
+            <button class="test-button" onclick="testSearchRuns()">Search</button>
+            <div id="search-result" class="test-result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <div class="test-title">4. Export Run (if available)</div>
+            <input type="text" id="run-id" placeholder="Run ID..." style="padding: 8px; margin-right: 10px;">
+            <button class="test-button" onclick="testExportRun()">Export Run</button>
+            <div id="export-result" class="test-result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <div class="test-title">5. Migrate Existing Data</div>
+            <button class="test-button" onclick="testMigrateData()">Migrate Data</button>
+            <div id="migrate-result" class="test-result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = 'http://localhost:8000/api';
+        
+        function showResult(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            element.style.display = 'block';
+            element.className = `test-result ${isError ? 'error' : 'success'}`;
+            element.innerHTML = `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+        }
+        
+        async function testGetStatistics() {
+            try {
+                const response = await fetch(`${API_BASE}/runs/statistics/`);
+                const data = await response.json();
+                showResult('statistics-result', data);
+            } catch (error) {
+                showResult('statistics-result', { error: error.message }, true);
+            }
+        }
+        
+        async function testListRuns() {
+            try {
+                const response = await fetch(`${API_BASE}/runs/`);
+                const data = await response.json();
+                showResult('runs-result', data);
+            } catch (error) {
+                showResult('runs-result', { error: error.message }, true);
+            }
+        }
+        
+        async function testSearchRuns() {
+            try {
+                const query = document.getElementById('search-query').value;
+                const url = `${API_BASE}/runs/search/?q=${encodeURIComponent(query)}`;
+                const response = await fetch(url);
+                const data = await response.json();
+                showResult('search-result', data);
+            } catch (error) {
+                showResult('search-result', { error: error.message }, true);
+            }
+        }
+        
+        async function testExportRun() {
+            try {
+                const runId = document.getElementById('run-id').value;
+                if (!runId) {
+                    showResult('export-result', { error: 'Please enter a run ID' }, true);
+                    return;
+                }
+                
+                const response = await fetch(`${API_BASE}/runs/${runId}/export/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        base_name: `test_export_${runId}`
+                    })
+                });
+                const data = await response.json();
+                showResult('export-result', data);
+            } catch (error) {
+                showResult('export-result', { error: error.message }, true);
+            }
+        }
+        
+        async function testMigrateData() {
+            try {
+                const response = await fetch(`${API_BASE}/migrate-data/`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    }
+                });
+                const data = await response.json();
+                showResult('migrate-result', data);
+            } catch (error) {
+                showResult('migrate-result', { error: error.message }, true);
+            }
+        }
+    </script>
+</body>
+</html> 

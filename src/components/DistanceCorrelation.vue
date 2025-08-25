@@ -1,6 +1,12 @@
 <template>
   <div class="distance-correlation-content data-mining-submenu-fullwidth">
-    <h2>Distance Correlation Analysis</h2>
+    <h2>
+      Distance Correlation Analysis
+      <HelpTooltip 
+        title="Distance Correlation Analysis"
+        description="A statistical method to detect both linear and nonlinear relationships between chiplet design features and outcomes (e.g., energy, runtime). It's useful when standard correlation misses complex dependencies. The dCor values range from 0 to 1, where 0 means no dependency and 1 means perfect dependency. Higher values indicate stronger influence on outcomes."
+      />
+    </h2>
     <div class="correlation-grid">
       <div v-for="(plot, index) in plots" :key="index" class="plot-container">
         <h3 class="plot-title">{{ plot.title }}</h3>
@@ -19,10 +25,20 @@
 <script>
 import axios from 'axios';
 import Plot from 'plotly.js-dist';
-import { getDistanceCorrelation } from '@/services/analytics';
+import { getDistanceCorrelation, getDistanceCorrelationInsights } from '@/services/analytics';
+import HelpTooltip from './HelpTooltip.vue';
 
 export default {
   name: "DistanceCorrelation",
+  components: {
+    HelpTooltip
+  },
+  props: {
+    filePath: {
+      type: String,
+      default: null
+    }
+  },
   data() {
     return {
       plots: [
@@ -42,7 +58,16 @@ export default {
   methods: {
     async fetchData() {
       try {
-        const response = await axios.get("http://127.0.0.1:8000/api/chart-data/");
+        let url = "http://127.0.0.1:8000/api/chart-data/";
+        let params = {};
+        
+        // Add file path if provided (for loaded runs)
+        if (this.filePath) {
+          params.file_path = this.filePath;
+          console.log('DistanceCorrelation: Fetching data with file path:', this.filePath);
+        }
+        
+        const response = await axios.get(url, { params });
         this.plotData = response.data.data;
         if (response.data.correlations) {
           this.plots.forEach(plot => {
@@ -56,10 +81,51 @@ export default {
     },
     async fetchDistanceCorrelation() {
       try {
-        const response = await getDistanceCorrelation();
+        const params = {};
+        
+        // Add file path if provided (for loaded runs)
+        if (this.filePath) {
+          params.file_path = this.filePath;
+          console.log('DistanceCorrelation: Using file path:', this.filePath);
+        }
+        
+        const response = await getDistanceCorrelation(params);
         this.distanceCorrelations = response;
+        
+        // Automatically send distance correlation context to chat
+        await this.sendDistanceCorrelationContextToChat(params, response);
+        
       } catch (error) {
         console.error("Error fetching distance correlation:", error);
+      }
+    },
+    
+    async sendDistanceCorrelationContextToChat(params, response) {
+      try {
+        // Get optimization context from parent or props
+        const contextParams = {
+          objective: this.$parent.currentObjective || 'both',
+          trace_name: this.$parent.currentTraceName || 'Unknown',
+          run_id: this.$parent.currentRunId || null
+        };
+        
+        // Get insights for context
+        const insightsResponse = await getDistanceCorrelationInsights(contextParams);
+        const structuredData = insightsResponse.structured_data;
+        
+        // Store structured data for potential follow-up questions
+        this.$parent.lastDataMiningResults = {
+          type: 'distance_correlation',
+          structured_data: structuredData
+        };
+        
+        // Send context silently to chat (no visible message)
+        this.$emit('send-insights-to-chat', structuredData, { silent: true });
+        
+        console.log('Distance correlation context sent to chat silently');
+      } catch (error) {
+        console.error("Error sending distance correlation context to chat:", error);
+        // Don't show error to user as this is background functionality
       }
     },
     createPlots() {
@@ -126,43 +192,25 @@ export default {
     },
     async getInsights() {
       try {
-        const response = await getDistanceCorrelation();
-        const correlations = response;
+        // Get optimization context from parent or props
+        const params = {
+          objective: this.$parent.currentObjective || 'both',
+          trace_name: this.$parent.currentTraceName || 'Unknown',
+          run_id: this.$parent.currentRunId || null
+        };
         
-        // Format the insights message
-        let insightsMessage = "Here are the key insights from the distance correlation analysis:\n\n";
+        const response = await getDistanceCorrelationInsights(params);
+        const insights = response.insights;
+        const structuredData = response.structured_data;
         
-        // Group by metric (Energy and Time)
-        const energyInsights = [];
-        const timeInsights = [];
-        
-        for (const [key, value] of Object.entries(correlations)) {
-          const [chiplet, metric] = key.split('_vs_');
-          const insight = `${chiplet}: ${value.toFixed(3)}`;
-          if (metric === 'Energy') {
-            energyInsights.push(insight);
-          } else {
-            timeInsights.push(insight);
-          }
-        }
-        
-        // Sort insights by correlation value (descending)
-        const sortInsights = (a, b) => parseFloat(b.split(': ')[1]) - parseFloat(a.split(': ')[1]);
-        energyInsights.sort(sortInsights);
-        timeInsights.sort(sortInsights);
-        
-        insightsMessage += "Energy Impact (higher values indicate stronger influence):\n";
-        energyInsights.forEach(insight => {
-          insightsMessage += `• ${insight}\n`;
-        });
-        
-        insightsMessage += "\nTime Impact (higher values indicate stronger influence):\n";
-        timeInsights.forEach(insight => {
-          insightsMessage += `• ${insight}\n`;
-        });
+        // Store structured data for potential follow-up questions
+        this.$parent.lastDataMiningResults = {
+          type: 'distance_correlation',
+          structured_data: structuredData
+        };
         
         // Emit event to parent to send to chat
-        this.$emit('send-insights-to-chat', insightsMessage);
+        this.$emit('send-insights-to-chat', insights);
       } catch (error) {
         console.error("Error getting insights:", error);
       }
@@ -184,6 +232,14 @@ export default {
   border-radius: 8px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.1);
   padding-bottom: 2rem;
+  position: relative;
+}
+
+.distance-correlation-content h2 {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #2d3748;
+  margin-bottom: 0.2rem;
 }
 
 .data-mining-submenu-fullwidth {
@@ -202,13 +258,6 @@ export default {
   width: 100%;
   flex: 1;
   min-height: 600px;
-}
-
-h2 {
-  text-align: center;
-  color: #2c3e50;
-  margin-bottom: 2rem;
-  font-size: 1.75rem;
 }
 
 .correlation-grid {

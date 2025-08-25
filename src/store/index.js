@@ -34,7 +34,7 @@ export default createStore({
     },
     async fetchScatterData({ commit }) {
       try {
-        const response = await axios.get("/api/get_scatter_data"); // Fetch data from backend
+        const response = await axios.get("/api/get_scatter_data/"); // Fetch data from backend
         commit("setScatterData", response.data); // Store data in Vuex
       } catch (error) {
         console.error("Error fetching scatter data:", error);

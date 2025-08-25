@@ -1,317 +1,637 @@
 <template>
-  <div class="app-container">
-    <aside class="sidebar">
-      <Sidebar :openWindows="openWindows" @select="handleSidebarSelect" />
-    </aside>
-    <main class="main-content">
-      <header class="app-header">
-        <h1>Chiplet Design Analysis</h1>
-      </header>
-      <div class="plot-container">
-        <Plot ref="Plot" :isEvaluatingDesign="isEvaluatingDesign" @point-message="SendMessageWithPoint" @open-modify-design="handleOpenModifyDesign" />
+  <div>
+    <Header @toggle-window="toggleWindow" :openWindows="openWindows" />
+    <div class="main-content-wrapper">
+      <div class="main-flex">
+        <!-- LEFT COLUMN -->
+        <div class="left-col">
+          <!-- Fixed Problem Formulation Section -->
+          <div class="problem-formulation-section">
+            <ProblemFormulation 
+              @optimization-success="handleOptimizationSuccess"
+              @data-mining-complete="handleDataMiningComplete"
+              @report-generated="handleReportGenerated"
+              @run-id-updated="handleRunIdUpdated"
+              @view-changed="handleViewChanged"
+            />
+          </div>
+          
+          <div class="explorer-section" v-if="!isComparativeAnalysisActive">
+            <h2 class="explorer-title">📈 Design Space Explorer</h2>
+            <Plot 
+              ref="Plot" 
+              :isComparative="isComparative" 
+              :currentRunId="currentRunId" 
+              :customPoints="customPoints"
+              @point-selected="handlePointSelected" 
+              @point-hovered="handlePointHovered" 
+            />
+            <DesignVisualizer 
+              :hoveredPoint="hoveredPoint"
+              :selectedPoint="selectedPoint"
+              :customPoint="customPoint"
+              @evaluate-design="handleEvaluateDesign"
+              @point-selected="handlePointSelected"
+              @point-hovered="handlePointHovered"
+            />
+          </div>
+          
+          <!-- Docked windows area: always rendered -->
+          <div class="dock-area">
+            <draggable v-model="dockOrder" :options="{animation:150, direction:'horizontal'}" class="dock-row">
+              <template #item="{element}">
+                <component
+                  :is="element"
+                  v-if="openWindows[element]"
+                  @close="closeWindow(element)"
+                  class="dock-window"
+                  :closable="true"
+                  :filePath="element === 'DataMining' ? currentFilePath : null"
+                  v-on="element === 'DataMining' ? { 'send-insights-to-chat': handleSendInsightsToChat } :
+                        element === 'RunManager' ? { 'plot-run': handlePlotRun, 'plot-runs': handlePlotRuns, 'show-comparison': handleShowComparison } : {}"
+                />
+              </template>
+            </draggable>
+          </div>
+        </div>
+        <!-- RIGHT COLUMN (Chat) -->
+        <div class="right-col">
+          <div class="chat-scroll-wrap">
+            <Chat ref="Chat" :chatOpen="true" @highlighting-response="handleHighlightingResponse" />
+          </div>
+        </div>
       </div>
-      <!-- Render Distance Correlation Study as a direct child for full width -->
-      <div class="windows-row">
-        <Draggable
-          v-model="windowOrder"
-          class="windows-row"
-          :options="{animation:150, direction:'horizontal'}"
-          :itemKey="element"
-        >
-          <template #item="{element}">
-            <div v-if="openWindows[element]" :class="['floating-window', { 'full-width-window': element === 'distance-correlation' || element === 'rule-mining' }]"><!-- full-width for special windows -->
-              <div class="window-header">
-                <span>{{ windowTitles[element] }}</span>
-              </div>
-              <button class="close-btn" @click="openWindows[element] = false">×</button>
-              <component
-                v-if="element === 'ga'"
-                :is="windowComponents[element]"
-                ref="RunGA"
-                v-on="{ 'run-ga': RunGAMain }"
-              />
-              <component
-                v-else-if="element === 'distance-correlation'"
-                :is="windowComponents[element]"
-                @send-insights-to-chat="handleSendInsightsToChat"
-              />
-              <component
-                v-else-if="element === 'rule-mining'"
-                :is="windowComponents[element]"
-                @send-insights-to-chat="handleSendInsightsToChat"
-              />
-              <component
-                v-else
-                :is="windowComponents[element]"
-                v-bind="element === 'modify-design' ? modifyDesignProps : {}"
-                v-on="element === 'modify-design' ? { 'evaluate-modified-design': handleEvaluateModifiedDesign, 'send-to-chat': handleSendToChat } : {}"
-              />
-            </div>
-          </template>
-        </Draggable>
-      </div>
-    </main>
-    <aside class="chat-panel">
-      <Chat ref="Chat" :chatOpen="true" />
-    </aside>
+    </div>
+
+    <!-- Custom Design Modal -->
+    <CustomDesignModal
+      ref="CustomDesignModal"
+      v-if="showCustomDesignModal"
+      :key="`custom-design-modal-${customDesignModalKey}`"
+      @close="showCustomDesignModal = false"
+      @submit="handleSubmitCustomDesign"
+    />
   </div>
 </template>
 
 
 <script>
-import axios from "axios";
-import Sidebar from './components/Sidebar.vue';
-import RunGA from './components/RunGA.vue';
-import Slider from "./components/Slider.vue";
-import Plot from "./components/Plot.vue";
-import Chat from "./components/Chat.vue";
-import DragDrop from "./components/DragDrop.vue";
-import ChipletMenu from "./components/ChipletMenu.vue";
-import RuleMining from "./components/RuleMining.vue";
-import DistanceCorrelation from "./components/DistanceCorrelation.vue";
-import Draggable from 'vuedraggable'
-import ModifyDesignMenu from './components/ModifyDesignMenu.vue';
+import Header from './components/Header.vue';
 import ProblemFormulation from './components/ProblemFormulation.vue';
-import "./assets/styles.css";
+import DataMining from './components/DataMining.vue';
+import RunManager from './components/RunManager.vue';
+import Plot from './components/Plot.vue';
+import Chat from './components/Chat.vue';
+import CustomDesignModal from './components/CustomDesignModal.vue';
+import draggable from 'vuedraggable';
+import { evaluatePointInputs, integrateCustomPointToGA, saveCustomPointToDataset } from './services/evaluation.js';
+import { addInsightsContext, getPointContext, addEnhancedInsightsContext } from './services/chat.js';
+import { generateOptimizationReport } from './services/analytics.js';
+import DesignVisualizer from './components/DesignVisualizer.vue';
 
 export default {
   components: {
-    Sidebar,
-    RunGA,
-    Slider,
+    Header,
+    ProblemFormulation,
+    DataMining,
+    RunManager,
     Plot,
     Chat,
-    DragDrop,
-    ChipletMenu,
-    RuleMining,
-    DistanceCorrelation,
-    Draggable,
-    ModifyDesignMenu,
-    ProblemFormulation
+    CustomDesignModal,
+    draggable,
+    DesignVisualizer,
   },
   data() {
     return {
-      title: "Chiplet Design Analysis",
-      filterA: [0, 100],
-      filterB: [0, 100],
-      nStack: null,
-      tsvPitch: null,
-      status: "",
-      filter1: "Latency (ns)",
-      filter2: "W3d (ns)",
-      GAisRunning: false,
-      isEvaluatingDesign: false,
       openWindows: {
-        ga: false,
-        chiplet: false,
-        'filter-design': false,
-        'data-mining': false,
-        'rule-mining': false,
-        'distance-correlation': false,
-        'modify-design': false,
-        'problem-formulation': false,
+        DataMining: false,
+        RunManager: false,
       },
-      windowOrder: ['ga', 'chiplet', 'filter-design', 'rule-mining', 'distance-correlation', 'problem-formulation'],
-      windowTitles: {
-        ga: 'Genetic Algorithm',
-        chiplet: 'Chiplet Menu',
-        'filter-design': 'Filter Design',
-        'rule-mining': 'Rule Mining',
-        'distance-correlation': 'Distance Correlation Study',
-        'modify-design': 'Selected Design',
-        'problem-formulation': 'Problem Formulation',
-      },
-      windowComponents: {
-        ga: 'RunGA',
-        chiplet: 'ChipletMenu',
-        'filter-design': 'FilterDesign',
-        'rule-mining': 'RuleMining',
-        'distance-correlation': 'DistanceCorrelation',
-        'modify-design': 'ModifyDesignMenu',
-        'problem-formulation': 'ProblemFormulation',
-      },
-      modifyDesignProps: null,
+      dockOrder: ['DataMining', 'RunManager'],
+      isComparative: false,
+      isComparativeAnalysisActive: false, // Track if comparative analysis is active
+      showCustomDesignModal: false,
+      customDesignModalKey: 0,
+      currentRunId: '', // Track current run ID for plot polling
+      hoveredPoint: null,
+      selectedPoint: null,
+      customPoints: [], // Store custom design points persistently
+      customPoint: null, // Store the most recently created custom point for comparison
     };
   },
   computed: {
-    openWindowList() {
-      // Return an array of open window keys in the current order
-      return this.windowOrder.filter(key => this.openWindows[key])
+    currentFilePath() {
+      // Check if this is a loaded run and return the temporary file path
+      if (this.currentRunId && this.currentRunId.startsWith('loaded_run_')) {
+        return `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${this.currentRunId}.csv`;
+      }
+      return null;
     }
   },
   methods: {
-    handleSidebarSelect(selected) {
-      this.openWindows[selected] = !this.openWindows[selected];
-    },
-    submit() {
-      this.status = "Processing... Results will be updated soon!";
-      axios
-        .post("/api/run_hisim_analysis", {
-          N_stack: this.nStack,
-          tsv_pitch: this.tsvPitch,
-        })
-        .then((response) => {
-          this.status = response.data.message;
-        })
-        .catch((error) => {
-          console.error("Error running analysis:", error);
-          this.status = "An error occurred.";
-        });
-    },
-    async RunGAMain() {
-      console.log('RunGAMain called from run-ga event');
-      this.GAisRunning = true;
-      try {
-        const gaData = await this.$refs.RunGA.callGABackend();
-        console.log("DATA MAIN")
-        console.log(gaData)
-        this.$refs.Plot.updateChartData(gaData);
-      } catch (error) {
-        console.error("Error running GA:", error);
-      } finally {
-        this.GAisRunning = false;
+    toggleWindow(window) {
+      if (!this.openWindows[window]) {
+        this.openWindows[window] = true;
+      }
+      // Move to front of dockOrder
+      const idx = this.dockOrder.indexOf(window);
+      if (idx !== -1) {
+        this.dockOrder.splice(idx, 1);
+        this.dockOrder.unshift(window);
       }
     },
-    async SendMessageWithPoint(dataPoint) {
-      const exe = dataPoint.x
-      const energy = dataPoint.y
-      const gpu = dataPoint.gpu
-      const attn = dataPoint.attn
-      const sparse = dataPoint.sparse
-      const conv = dataPoint.conv
-
-      // Open the chat if it's not already open
+    closeWindow(window) {
+      this.openWindows[window] = false;
+    },
+    handleOptimizationSuccess(response) {
+      console.log('=== handleOptimizationSuccess CALLED ===');
+      console.log('Response received:', response);
+      console.log('Stack trace:', new Error().stack);
       
-      if (!this.chatOpen) {
-        this.chatOpen = true;
-        // Wait for Chat component to be mounted and $refs.Chat to exist
-        await this.$nextTick();
+      // Check if this is a comparative analysis result - more comprehensive detection
+      const isComparativeAnalysis = response && (
+        response.runA || 
+        response.runB || 
+        response.mining ||
+        response.comparative_study ||
+        response.run_a_id ||
+        response.run_b_id ||
+        response.run_a_points ||
+        response.run_b_points ||
+        (response.status === 'success' && (response.runA || response.runB || response.comparative_study))
+      );
+      
+      if (isComparativeAnalysis) {
+        console.log('This is a comparative analysis result - not updating plot');
+        console.log('Comparative analysis response keys:', Object.keys(response || {}));
+        // For comparative analysis, don't update the plot or clear custom points
+        // The comparative results should be handled by the ComparativeStudy component
+        return;
       }
-      this.$refs.Chat.gettingData = true
-
-      await axios.get('http://127.0.0.1:8000/api/add-info/',
-        {
-          params: {
-            exe: exe,
-            energy: energy,
-            gpu: gpu,
-            attn: attn,
-            sparse: sparse,
-            conv: conv
+      
+      // Only clear custom points if this is actually a new optimization run
+      // Check if response contains optimization data (not just chat responses)
+      const isOptimizationRun = response && (
+        response.data || 
+        response.plot_data || 
+        response.run_a_results || 
+        response.run_b_results ||
+        (response.status === 'success' && (response.data || response.plot_data))
+      );
+      
+      if (isOptimizationRun) {
+        console.log('This is a real optimization run - clearing custom points');
+        
+        // Check if this is a loaded run
+        const isLoadedRun = response.loaded_from_backup;
+        
+        if (isLoadedRun) {
+          // For loaded runs, set the flag to prevent polling from clearing the data
+          if (this.$refs.Plot && this.$refs.Plot.setLoadedRunData) {
+            this.$refs.Plot.setLoadedRunData(true);
+            console.log('Set loaded run data flag to prevent polling from clearing data');
+          }
+        } else {
+          // For new optimization runs, clear the flag and custom points
+          if (this.$refs.Plot && this.$refs.Plot.clearLoadedRunData) {
+            this.$refs.Plot.clearLoadedRunData();
+            console.log('Cleared loaded run data flag for new optimization');
+          }
+          
+          // Clear custom points when starting a new optimization run
+          this.customPoints = [];
+          this.customPoint = null; // Clear the custom point comparison
+            console.log('Clearing custom points for new optimization run');
+        }
+        
+        // Set current run ID for polling
+        if (response.run_directory && !this.currentRunId) {
+          this.currentRunId = response.run_directory;
+          console.log('Set current run ID for polling:', this.currentRunId);
+        }
+        
+        // Fallback: if run ID is not set but available in response, set it
+        if (!this.currentRunId && response.run_directory) {
+          console.log('Fallback: Setting run ID from response:', response.run_directory);
+          this.currentRunId = response.run_directory;
+        }
+        
+        // Update plot data
+        if (this.$refs.Plot && this.$refs.Plot.updateChartData) {
+          console.log('Updating plot with new data');
+          if (response.plot_data) {
+            this.$refs.Plot.updateChartData(response.plot_data);
+          } else if (response.data) {
+            this.$refs.Plot.updateChartData(response.data);
           }
         }
-      );
-
-      const message = `I have received context on this design! I am ready to answer questions about it.`;
-
-      this.$refs.Chat.gettingData = false
-      this.$refs.Chat.chatMessage = message;
-      this.$refs.Chat.assistantMessage();
-
-      // this.$refs.Chat.messages.push({ text: `GA Data: ${x}, ${y} `, sender: "user" });
-      // this.$refs.Chat.sendMessage(); // maybe this way?
-    },
-    async evaluate_design() {
-      try {
-        const eval_data = await this.$refs.DragDrop.evaluate_point();
-        console.log("Design evaluation confirmed.");
-        this.$refs.Plot.updateChartData(eval_data);
-      } catch (error) {
-        console.error("Error confirming design evaluation:", error);
-      }
-    },
-    async evaluate_design_input() {
-      try {
-        const eval_data = await this.$refs.ChipletMenu.evaluate_point_input();
-        console.log("Design evaluation confirmed.");
-        this.$refs.Plot.updateChartData(eval_data);
-      } catch (error) {
-        console.error("Error confirming design evaluation:", error);
-      }
-    },
-    handleOpenModifyDesign(data) {
-      // Only one ModifyDesignMenu at a time
-      this.openWindows['modify-design'] = true;
-      this.modifyDesignProps = data;
-      // Ensure it's the first window
-      if (!this.windowOrder.includes('modify-design')) {
-        this.windowOrder = ['modify-design', ...this.windowOrder];
+        
+        // Force a refresh to ensure the plot updates
+        if (this.$refs.Plot && this.$refs.Plot.refreshPlot) {
+          console.log('Forcing plot refresh');
+          setTimeout(() => {
+            this.$refs.Plot.refreshPlot();
+          }, 1000); // Wait 1 second for the file to be written
+        }
+        
+        // Enable polling after successful optimization
+        if (this.$refs.Plot && this.$refs.Plot.enablePolling) {
+          console.log('Enabling polling after optimization');
+          this.$refs.Plot.enablePolling();
+        }
+        
+        if (response && response.plot_data && (response.plot_data.A || response.plot_data.B)) {
+          this.isComparative = true;
+          
+          // Clear comparative loading state if data is available
+          if (this.$refs.Plot && this.$refs.Plot.clearComparativeLoading) {
+            this.$refs.Plot.clearComparativeLoading();
+          }
+        } else {
+          this.isComparative = false;
+        }
+        
+        // Show comparative summary in chat if available
+        if (response && response.chat_summary && this.$refs.Chat && this.$refs.Chat.addRichChatMessage) {
+          this.$refs.Chat.addRichChatMessage(
+            response.chat_summary.message,
+            response.chat_summary.summary_file
+          );
+        }
       } else {
-        this.windowOrder = ['modify-design', ...this.windowOrder.filter(w => w !== 'modify-design')];
+        console.log('This is not a real optimization run - keeping custom points');
+        console.log('Response type:', typeof response);
+        console.log('Response keys:', response ? Object.keys(response) : 'no response');
+      }
+      
+      console.log('=== handleOptimizationSuccess END ===');
+    },
+    
+    // RunManager event handlers
+    handlePlotRun(runData) {
+      console.log('Plotting single run:', runData);
+      if (this.$refs.Plot && this.$refs.Plot.loadRunData) {
+        this.$refs.Plot.loadRunData(runData);
       }
     },
-    async handleEvaluateModifiedDesign(design) {
-      this.isEvaluatingDesign = true;
-      try {
-        // Call backend to get evaluated x/y for the new design
-        const response = await axios.get("http://127.0.0.1:8000/api/evaluate-point-inputs/", {
-          params: {
-            GPU: design.GPU,
-            Attention: design.Attention,
-            Sparse: design.Sparse,
-            Convolution: design.Convolution,
-            trace: design.trace,
-          }
-        });
-        // Only update the plot after backend response
-        const evaluated = Array.isArray(response.data.data) ? response.data.data[0] : response.data.data;
-        const currentData = this.$refs.Plot.getChartData();
-        const newData = [...currentData, {
-          x: evaluated.x,
-          y: evaluated.y,
-          gpu: design.GPU,
-          attn: design.Attention,
-          sparse: design.Sparse,
-          conv: design.Convolution,
-          trace: design.trace,
-          xLabel: design.xLabel,
-          yLabel: design.yLabel,
-        }];
-        this.$refs.Plot.updateChartData(newData);
-        // Keep the Modify Design window open and update its X and Y values
-        this.modifyDesignProps = {
-          ...this.modifyDesignProps,
-          x: evaluated.x,
-          y: evaluated.y,
-        };
-      } catch (error) {
-        console.error("Error evaluating modified design:", error);
-      } finally {
-        this.isEvaluatingDesign = false;
+    
+    handlePlotRuns(runsData) {
+      console.log('Plotting multiple runs:', runsData);
+      if (this.$refs.Plot && this.$refs.Plot.loadMultipleRuns) {
+        this.$refs.Plot.loadMultipleRuns(runsData);
       }
     },
-    handleSendToChat(design) {
-      // Use the same logic as SendMessageWithPoint
-      this.SendMessageWithPoint({
-        x: design.x,
-        y: design.y,
-        gpu: design.GPU,
-        attn: design.Attention,
-        sparse: design.Sparse,
-        conv: design.Convolution,
-        trace: design.trace
-      });
+    
+    handleShowComparison(comparisonData) {
+      console.log('Showing comparison:', comparisonData);
+      // You can implement comparison visualization here
+      // For now, just log the data
+      if (this.$refs.Chat) {
+        this.$refs.Chat.addMessage(
+          `Comparison loaded: ${comparisonData.run_a.run_name} vs ${comparisonData.run_b.run_name}`
+        );
+      }
     },
-    async handleSendInsightsToChat(insightsMessage) {
-      // Show loading in chat
-      this.$refs.Chat.gettingData = true;
-      // Do not push 'Analyzing insights...' as a chat message
-
-      // Send to backend for LLM analysis
+    handleSendInsightsToChat(insights, options = {}) {
+      console.log('App.vue: handleSendInsightsToChat called with:', insights, 'options:', options);
+      
+      // Check if this is a silent context update (structured data)
+      if (options.silent && typeof insights === 'object') {
+        console.log('Silent context update - not displaying in chat UI');
+        // Only add to AI context, don't display in chat
+        addInsightsContext({ insights })
+          .then(response => {
+            console.log('Silent insights context added to AI:', response);
+          })
+          .catch(error => {
+            console.error('Error adding silent insights context:', error);
+          });
+        return;
+      }
+      
+      // Handle regular string messages
+      if (typeof insights === 'string') {
+        // First, display the insights in the chat UI
+        if (this.$refs.Chat && this.$refs.Chat.addMessage) {
+          console.log('Displaying insights in chat UI');
+          this.$refs.Chat.addMessage(insights, 'chat');
+        } else {
+          console.error('Chat component or addMessage method not available');
+        }
+        
+        // Then, add the insights to the AI's conversation context
+        addInsightsContext({ insights })
+          .then(response => {
+            console.log('Insights context added to AI:', response);
+          })
+          .catch(error => {
+            console.error('Error adding insights context:', error);
+          });
+      } else {
+        console.error('Invalid insights format:', typeof insights);
+      }
+    },
+    handleSubmitCustomDesign(design) {
+      console.log('App.vue: handleSubmitCustomDesign called with:', design);
+      
+      // Evaluate the custom design
+      this.evaluateCustomDesign(design);
+    },
+    async evaluateCustomDesign(design) {
       try {
-        const response = await axios.get('http://127.0.0.1:8000/api/chat-response/', {
-          params: {
-            role: "user",
-            content: "Please provide a detailed, natural-language summary and interpretation of these distance correlation results, including what high or low values mean for chiplet design choices:\n\n" + insightsMessage
-          }
+        // Ensure we have a trace value
+        const trace = design.trace || "gpt-j-65536-weighted";
+        console.log('Evaluating custom design with trace:', trace);
+        
+        // Evaluate the custom design
+        const response = await evaluatePointInputs({
+          GPU: design.chiplets.GPU,
+          Attention: design.chiplets.Attention,
+          Sparse: design.chiplets.Sparse,
+          Convolution: design.chiplets.Convolution,
+          trace: trace,
         });
-        this.$refs.Chat.gettingData = false;
-        this.$refs.Chat.chatMessage = response.data.response;
-        this.$refs.Chat.assistantMessage();
+        
+        console.log('Custom design evaluation response:', response);
+        
+        // Add the evaluated point to the plot
+        if (response.data && this.$refs.Plot && this.$refs.Plot.addCustomDesignPoint) {
+          console.log('Response data received:', response.data);
+          
+          const evaluatedPoint = {
+            x: response.data.x,
+            y: response.data.y,
+            gpu: response.data.gpu,
+            attn: response.data.attn,
+            sparse: response.data.sparse,
+            conv: response.data.conv,
+            trace: response.data.trace,
+            type: 'custom',
+            label: 'Custom Design',
+            source: 'Manual',
+            algorithm: 'Custom Design'
+          };
+          
+          console.log('Adding evaluated custom design point to plot:', evaluatedPoint);
+          
+          // Store the custom point in App.vue state for persistence
+          this.customPoints.push(evaluatedPoint);
+          console.log('Custom points stored in App.vue:', this.customPoints.length);
+          
+          // Set the custom point for comparison in Design Visualizer
+          this.customPoint = evaluatedPoint;
+          console.log('Custom point set for comparison (from modal):', evaluatedPoint);
+          console.log('App.vue customPoint after setting (from modal):', this.customPoint);
+          console.log('App.vue customPoints array length (from modal):', this.customPoints.length);
+          
+          // Add the point to the plot
+          this.$refs.Plot.addCustomDesignPoint(evaluatedPoint);
+        } else {
+          console.error('Missing response data or plot reference');
+        }
+        
+        console.log('Closing custom design modal');
+        this.showCustomDesignModal = false;
       } catch (error) {
-        this.$refs.Chat.gettingData = false;
-        this.$refs.Chat.chatMessage = "Sorry, I couldn't analyze the insights right now.";
-        this.$refs.Chat.assistantMessage();
+        console.error('Error evaluating custom design:', error);
+        // You might want to show an error message to the user here
+      }
+    },
+    handleHighlightingResponse(highlightingData) {
+      console.log('App.vue: handleHighlightingResponse called with:', highlightingData);
+      
+      if (this.$refs.Plot && this.$refs.Plot.highlightPointsByConstraint) {
+        console.log('Calling highlightPointsByConstraint on Plot component');
+        this.$refs.Plot.highlightPointsByConstraint(highlightingData);
+      } else {
+        console.error('Plot component or highlightPointsByConstraint method not available');
+      }
+    },
+    handleDataMiningComplete(dataMiningResults) {
+      console.log('App.vue: handleDataMiningComplete called with:', dataMiningResults);
+      
+      // Show data mining results in chat
+      if (this.$refs.Chat && this.$refs.Chat.addMessage) {
+        const message = `Data mining analysis completed! Rule mining found ${dataMiningResults.ruleMining?.rules?.length || 0} rules, and distance correlation analysis is ready.`;
+        this.$refs.Chat.addMessage(message, 'chat');
+      }
+      
+      // Open the DataMining component window to show the results
+      this.toggleWindow('DataMining');
+    },
+    handleReportGenerated(reportData) {
+      console.log('App.vue: handleReportGenerated called with:', reportData);
+      
+      // Show report generation success in chat
+      if (this.$refs.Chat && this.$refs.Chat.addMessage) {
+        if (reportData.loaded_from_backup) {
+          // For loaded runs, show web link if available
+          if (reportData.web_link) {
+            const message = `Previous Run Report generated successfully! You can view it here: http://localhost:8000${reportData.web_link}`;
+            this.$refs.Chat.addMessage(message, 'chat');
+          } else if (reportData.download_link) {
+            const message = `Previous Run Report generated successfully! You can download it here: ${reportData.download_link}`;
+            this.$refs.Chat.addMessage(message, 'chat');
+          } else {
+            // Fallback: show report content directly
+            const message = `Report loaded from previous run:\n\n${reportData.report_content}`;
+            this.$refs.Chat.addMessage(message, 'chat');
+          }
+        } else {
+          // For current runs, show web link
+          if (reportData.web_link) {
+            const message = `Report generated successfully! You can view it here: http://localhost:8000${reportData.web_link}`;
+            this.$refs.Chat.addMessage(message, 'chat');
+          } else if (reportData.download_link) {
+            // Fallback for old format
+            const message = `Report generated successfully! You can download it here: ${reportData.download_link}`;
+            this.$refs.Chat.addMessage(message, 'chat');
+          } else {
+            const message = `Report generated successfully!`;
+            this.$refs.Chat.addMessage(message, 'chat');
+          }
+        }
+      }
+    },
+    handleRunIdUpdated(runId) {
+      console.log('=== App.vue: handleRunIdUpdated START ===');
+      console.log('App.vue: handleRunIdUpdated called with:', runId);
+      console.log('App.vue: Previous currentRunId:', this.currentRunId);
+      this.currentRunId = runId;
+      console.log('App.vue: Current run ID updated to:', this.currentRunId);
+      console.log('App.vue: Plot ref exists:', !!this.$refs.Plot);
+      console.log('=== App.vue: handleRunIdUpdated END ===');
+    },
+    handleViewChanged(view) {
+      console.log('App.vue: View changed to:', view);
+      // Set comparative analysis active state based on view
+      this.isComparativeAnalysisActive = view === 'comparative';
+      console.log('App.vue: Comparative analysis active:', this.isComparativeAnalysisActive);
+    },
+    handlePointSelected(point) {
+      console.log('App.vue: handlePointSelected called with:', point);
+      this.selectedPoint = point;
+      this.customPoint = null; // Clear custom point comparison when selecting a new point
+      
+      // Automatically send point context to chat
+      this.sendPointContextToChat(point);
+    },
+    handlePointHovered(point) {
+      this.hoveredPoint = point;
+    },
+    handleModifyDesign(design) {
+      // This method is no longer needed since we handle modification in DesignVisualizer
+      console.log('handleModifyDesign called but no longer used');
+    },
+    async handleEvaluateDesign(modifiedDesign) {
+      console.log('App.vue: handleEvaluateDesign called with:', modifiedDesign);
+      
+      try {
+        // Get the current trace (use default if not available)
+        const trace = this.currentRunId ? 'gpt-j-65536-weighted' : 'gpt-j-65536-weighted';
+        console.log('Evaluating modified design with trace:', trace);
+        
+        // First, evaluate the modified design to get performance metrics
+        const response = await evaluatePointInputs({
+          GPU: modifiedDesign.gpu,
+          Attention: modifiedDesign.attn,
+          Sparse: modifiedDesign.sparse,
+          Convolution: modifiedDesign.conv,
+          trace: trace
+        });
+        
+        console.log('Modified design evaluation response:', response);
+        
+        if (response.data && this.$refs.Plot && this.$refs.Plot.addCustomDesignPoint) {
+          // Create the evaluated point with custom design properties
+          const evaluatedPoint = {
+            x: response.data.x,
+            y: response.data.y,
+            gpu: modifiedDesign.gpu,
+            attn: modifiedDesign.attn,
+            sparse: modifiedDesign.sparse,
+            conv: modifiedDesign.conv,
+            trace: trace,
+            type: 'custom',
+            source: 'Manual',
+            label: 'Custom Design',
+            algorithm: 'Custom Design'
+          };
+          
+          console.log('Adding evaluated modified design point to plot:', evaluatedPoint);
+          
+          // Store the custom point in App.vue state for persistence
+          this.customPoints.push(evaluatedPoint);
+          console.log('Custom points stored in App.vue:', this.customPoints.length);
+          
+          // Set the custom point for comparison in Design Visualizer
+          this.customPoint = evaluatedPoint;
+          console.log('Custom point set for comparison (from Design Visualizer):', evaluatedPoint);
+          console.log('App.vue customPoint after setting (from Design Visualizer):', this.customPoint);
+          
+          // Add to plot as custom design
+          this.$refs.Plot.addCustomDesignPoint(evaluatedPoint);
+          
+          // Automatically save the custom point to dataset after successful evaluation
+          try {
+            console.log('Automatically saving custom point to dataset...');
+            const saveResponse = await saveCustomPointToDataset(evaluatedPoint);
+            console.log('Custom point automatically saved to dataset:', saveResponse);
+            
+            // Mark the point as saved
+            evaluatedPoint.saved = true;
+            this.customPoint.saved = true;
+            
+            // Update the point in the plot to show it's saved
+            this.$refs.Plot.updateCustomDesignPoint(evaluatedPoint);
+            
+            console.log('Custom point marked as saved and updated in plot');
+          } catch (saveError) {
+            console.error('Error automatically saving custom point:', saveError);
+            // Don't fail the entire operation if saving fails
+          }
+          
+          // Try to integrate the custom point into the GA if we have an active run
+          if (this.currentRunId && !this.currentRunId.startsWith('loaded_run_')) {
+            try {
+              console.log('Attempting to integrate custom point into GA for run:', this.currentRunId);
+              const integrationResponse = await integrateCustomPointToGA({
+                run_id: this.currentRunId,
+                custom_point: {
+                  gpu: modifiedDesign.gpu,
+                  attn: modifiedDesign.attn,
+                  sparse: modifiedDesign.sparse,
+                  conv: modifiedDesign.conv
+                },
+                current_generation: 0 // This could be tracked more precisely
+              });
+              
+              console.log('GA integration response:', integrationResponse);
+              
+              if (integrationResponse.status === 'success') {
+                console.log('Custom point successfully integrated into GA population');
+                // The GA will continue running with the custom point included
+              }
+            } catch (integrationError) {
+              console.log('Could not integrate into GA (this is normal for loaded runs):', integrationError.message);
+              // This is expected for loaded runs or when GA is not running
+            }
+          }
+          
+          console.log('Modified design successfully added to plot and saved');
+        }
+      } catch (error) {
+        console.error('Error evaluating modified design:', error);
+        // You might want to show a user-friendly error message here
+      }
+    },
+    async sendPointContextToChat(point) {
+      try {
+        // Prepare the summary context data
+        const summaryInsights = `Selected design point: Execution Time: ${point.x}ms, Energy: ${point.y}mJ, GPU: ${point.gpu || 0}, Attention: ${point.attn || 0}, Sparse: ${point.sparse || 0}, Convolution: ${point.conv || 0}`;
+        
+        // Try to fetch detailed context if we have a run ID
+        let detailedContext = null;
+        if (this.currentRunId) {
+          try {
+            console.log('Fetching detailed point context...');
+            const contextResponse = await getPointContext({
+              run_id: this.currentRunId,
+              gpu: point.gpu || 0,
+              attn: point.attn || 0,
+              sparse: point.sparse || 0,
+              conv: point.conv || 0
+            });
+            
+            if (contextResponse.context) {
+              detailedContext = contextResponse.context;
+              console.log('Detailed context fetched successfully');
+            }
+          } catch (error) {
+            console.log('Detailed context not available for this point:', error.message);
+            // Continue without detailed context - this is not a critical error
+          }
+        }
+        
+        // Send enhanced context to chat
+        await addEnhancedInsightsContext({
+          summary_insights: summaryInsights,
+          detailed_context: detailedContext
+        });
+        
+        console.log('Enhanced point context sent to chat');
+      } catch (error) {
+        console.error('Error sending enhanced point context to chat:', error);
+        
+        // Fallback to basic context if enhanced fails
+        try {
+          await addInsightsContext({
+            insights: `Selected design point: Execution Time: ${point.x}ms, Energy: ${point.y}mJ, GPU: ${point.gpu || 0}, Attention: ${point.attn || 0}, Sparse: ${point.sparse || 0}, Convolution: ${point.conv || 0}`
+          });
+          console.log('Fallback: Basic point context sent to chat');
+        } catch (fallbackError) {
+          console.error('Error sending fallback context:', fallbackError);
+        }
       }
     },
   },
@@ -319,206 +639,475 @@ export default {
 </script>
 
 <style>
-.app-container {
-  display: flex;
-  flex-direction: row;
+.fixed-header {
+  position: fixed;
+  top: 0;
+  left: 0;
   width: 100vw;
-  height: 100vh;
-  overflow: hidden;
+  z-index: 100;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+  height: 88px;
 }
-
-.sidebar {
-  width: 240px;
-  flex-shrink: 0;
-  background: #f5f8ff;
-  box-sizing: border-box;
-  z-index: 2;
-}
-
-.main-content {
-  flex: 1 1 0;
-  min-width: 0;
+.header-content {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  background: #f9fafd;
-  overflow-y: auto;
-  box-sizing: border-box;
-  padding: 24px 24px 16px 24px;
-}
-
-.plot-container {
-  width: 100%;
-  max-width: 100%;
-  height: 600px;
-  box-sizing: border-box;
-  display: flex;
-  justify-content: center;
+  justify-content: space-between;
   align-items: center;
-  padding: 2rem 2.5rem 2.5rem 2.5rem;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-  margin-bottom: 2rem;
+  padding: 1.25rem 2rem 1.25rem 2rem;
 }
-
-.chat-panel {
-  width: 300px;
-  flex-shrink: 0;
-  background: #f5f8ff;
-  box-sizing: border-box;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  border-left: 1px solid #e0e0e0;
-  padding: 0;
-}
-
-.app-header {
-  background-color: #f8f9fa;
-  border-bottom: 1px solid #dee2e6;
-  padding: 1rem;
-  text-align: center;
-  margin-bottom: 1rem;
-}
-
-.app-header h1 {
-  margin: 0;
-  font-size: 1.75rem;
+.header-title {
+  font-size: 1.7rem;
+  font-weight: 700;
   color: #2c3e50;
+  letter-spacing: 0.01em;
 }
-
-.windows-row {
+.header-actions {
   display: flex;
   gap: 1rem;
-  flex-wrap: wrap;
-  margin: 0;
-  justify-content: flex-start;
-  width: 100%;
-  max-width: 100%;
-  box-sizing: border-box;
-  align-items: stretch;
 }
-
-.floating-window {
-  background: #fff;
-  border: 1px solid #e0e6ed;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgba(44, 62, 80, 0.10);
-  max-width: 340px;
-  min-width: 220px;
-  width: 100%;
-  padding: 0 0 1rem 0;
-  overflow: visible;
+.header-btn {
+  background: #e9ecef;
+  color: #adb5bd;
+  border: none;
+  border-radius: 5px;
+  padding: 0.5rem 1.2rem;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.main-content-wrapper {
+  padding-top: 88px;
+  background: #f9fafd;
+  min-height: 100vh;
+}
+.main-flex {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  width: 100vw;
+  min-height: calc(100vh - 88px);
+}
+.left-col {
+  flex: 2 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  vertical-align: top;
-  margin-bottom: 1rem;
-  box-sizing: border-box;
-  position: relative;
+  height: 100%;
+  overflow-y: auto;
+  background: #f9fafd;
+  padding: 0;
 }
-
-.full-width-window {
-  width: 100%;
-  max-width: 100%;
+.problem-formulation-section {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+  padding: 2rem 2.5rem 2.5rem 2.5rem;
+  margin: 32px 32px 2rem 32px;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
-  flex: 1 1 100%;
-  margin-bottom: 1rem;
-  box-sizing: border-box;
+}
+.problem-formulation-wrap {
+  margin-bottom: 2rem;
+  padding: 32px 32px 0 32px;
+}
+.explorer-section {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+  padding: 2rem 2.5rem 2.5rem 2.5rem;
+  margin-bottom: 2rem;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: 32px;
+  margin-right: 32px;
+  transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
-.window-header {
-  background: #f8f9fa;
-  border-bottom: 1px solid #e0e6ed;
-  padding: 0.75rem 1rem;
+.explorer-header {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  font-weight: 600;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 1.2rem;
+}
+.explorer-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #2d3748;
+  margin: 0;
+}
+.explorer-subtext {
   font-size: 1rem;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
 }
-
-.close-btn {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  background: none;
-  border: none;
-  font-size: 1.25rem;
-  cursor: pointer;
-  color: #6c757d;
-  padding: 0 0.5rem;
-  line-height: 1;
+.plot-area {
+  min-height: 320px;
+  margin-bottom: 0.5rem;
 }
-
-.close-btn:hover {
-  color: #343a40;
-}
-
-.window {
-  background: white;
+.plot-area-constrained {
+  aspect-ratio: 4/3;
+  background: #fff;
   border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  padding: 1rem;
-  margin: 1rem;
-  flex: 1;
-  min-width: 400px;
-  max-width: 800px;
-  height: calc(100vh - 2rem);
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
 }
-
-.window[data-window="Rule Mining"],
-.window[data-window="Distance Correlation Study"] {
-  max-width: 100%;
-  width: 100%;
+.axis-selectors {
+  margin-top: 0.5rem;
 }
-
-/* Special styling for Distance Correlation Study */
-.floating-window[data-window="Distance Correlation Study"] {
-  max-width: none;
+.explorer-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+.btn {
+  display: inline-block;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 0.6rem 1.4rem;
+  font-size: 1rem;
+  transition: background 0.2s, box-shadow 0.2s;
+  border: none;
+  outline: none;
+}
+.btn-primary {
+  background: #337aff;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.10);
+  cursor: pointer;
+}
+.btn-primary:hover {
+  background: #2356b8;
+}
+.data-mining-section {
+  margin-top: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.chiplet-menu-section {
+  margin-top: 2rem;
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+  padding: 1.5rem 1rem;
+  max-width: 400px;
+  align-self: flex-start;
+  margin-left: 32px;
+}
+.chiplet-menu-label {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: #2c3e50;
+}
+.right-col {
+  flex: 1 1 0;
   min-width: 0;
-  width: 100%;
-  flex: 1 1 100%;
-  height: calc(100vh - 200px);
-  overflow: auto;
-  padding: 1rem;
-  margin-bottom: 0;
+  max-width: 380px;
+  background: #f5f8ff;
+  border-left: 1px solid #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 88px);
+  max-height: calc(100vh - 88px);
+  padding: 0;
+  margin: 0;
+  box-sizing: border-box;
 }
-
-.floating-window[data-window="Distance Correlation Study"] .window-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
+.chat-scroll-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.fade-enter-active, .fade-leave-active {
+  transition: opacity 0.2s;
+}
+.fade-enter-from, .fade-leave-to {
+  opacity: 0;
+}
+.btn {
+  display: inline-block;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 0.6rem 1.4rem;
+  font-size: 1rem;
+  transition: background 0.2s, box-shadow 0.2s;
+  border: none;
+  outline: none;
+}
+.btn-primary {
+  background: #337aff;
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.10);
+  cursor: pointer;
+}
+.btn-primary:hover {
+  background: #2356b8;
+}
+.mt-4 {
+  margin-top: 1.5rem;
+}
+.flex {
+  display: flex;
+}
+.justify-end {
+  justify-content: flex-end;
+}
+.gap-4 {
+  gap: 1rem;
+}
+.px-4 {
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+.py-2 {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+.border-b {
+  border-bottom: 1px solid #e0e0e0;
+}
+.font-semibold {
+  font-weight: 600;
+}
+.text-gray-700 {
+  color: #374151;
+}
+.bg-white {
   background: #fff;
 }
-
-/* Responsive: stack vertically on small screens */
-@media (max-width: 900px) {
-  .app-container {
+.text-2xl {
+  font-size: 1.5rem;
+}
+.font-bold {
+  font-weight: 700;
+}
+.text-gray-800 {
+  color: #2d3748;
+}
+.mb-2 {
+  margin-bottom: 0.5rem;
+}
+.data-mining-card {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+  padding: 2rem 2.5rem 2.5rem 2.5rem;
+  margin-bottom: 2rem;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: 32px;
+  margin-right: 32px;
+}
+.data-mining-header {
+  margin-bottom: 1.2rem;
+}
+.data-mining-title {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #2d3748;
+  margin-bottom: 0.2rem;
+}
+.data-mining-subtext {
+  font-size: 1rem;
+  color: #6b7280;
+  margin-bottom: 0.5rem;
+}
+.create-design-btn-wrap {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin: 1.5rem 32px 0 32px;
+}
+.create-design-btn {
+  background: transparent;
+  color: #337aff;
+  font-weight: 600;
+  font-size: 1rem;
+  border: 1.5px solid #337aff;
+  border-radius: 6px;
+  padding: 0.45rem 1.1rem;
+  box-shadow: none;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, border 0.2s;
+  margin-left: 0; /* Remove left margin so button hugs the right */
+}
+.create-design-btn.secondary {
+  background: transparent;
+  color: #337aff;
+  border: 1.5px solid #337aff;
+}
+.create-design-btn.secondary:hover {
+  background: #eaf1ff;
+  color: #2356b8;
+  border-color: #2356b8;
+}
+@media (max-width: 600px) {
+  .flex-header {
     flex-direction: column;
+    align-items: stretch;
+    gap: 0.5rem;
   }
-  .sidebar,
-  .chat-panel {
+  .create-design-btn {
     width: 100%;
-    max-width: 100vw;
-    min-width: 0;
-    height: auto;
-    border-right: none;
-    border-left: none;
-    border-bottom: 1px solid #b3c6e0;
+    margin-left: 0;
   }
-  .main-content {
-    max-width: 100vw;
+  
+  /* Mobile responsive design */
+  .main-flex {
+    flex-direction: column;
     width: 100%;
-    min-width: 0;
-    height: auto;
-    padding: 8px 0;
   }
-  .chat-panel {
-    border-bottom: none;
-    border-top: 1px solid #e0e0e0;
+  
+  .left-col {
+    flex: none;
+    width: 100%;
+    padding: 0;
+  }
+  
+  .right-col {
+    flex: none;
+    width: 100%;
+    height: 50vh;
+    min-height: 300px;
+  }
+  
+  .problem-formulation-section {
+    margin: 16px 16px 1rem 16px;
+    border-radius: 8px;
+    padding: 1.5rem 1rem 1.5rem 1rem;
+  }
+  
+  .explorer-section {
+    margin: 0 16px 1rem 16px;
+    padding: 1.5rem 1rem 1.5rem 1rem;
+    border-radius: 8px;
+  }
+  
+  .create-design-btn-wrap {
+    margin: 1rem 16px 0 16px;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .dock-area {
+    margin: 0 16px 1rem 16px;
+  }
+  
+  .dock-row {
+    flex-direction: column;
+    gap: 1rem;
+  }
+  
+  .dock-window {
+    width: 100% !important;
+    min-width: 100% !important;
+  }
+  
+  .header-content {
+    padding: 1rem;
+  }
+  
+  .header-title {
+    font-size: 1.4rem;
+  }
+  
+  .header-tabs {
+    gap: 0.25rem;
+  }
+  
+  .header-tab {
+    padding: 0.5rem 1rem;
+    font-size: 0.9rem;
+  }
+}
+
+@media (min-width: 601px) and (max-width: 1024px) {
+  /* Tablet responsive design */
+  .main-flex {
+    gap: 1rem;
+  }
+  
+  .left-col {
+    flex: 1.5 1 0;
+  }
+  
+  .right-col {
+    flex: 1 1 0;
+  }
+  
+  .problem-formulation-section {
+    margin: 24px 24px 1.5rem 24px;
+    padding: 1.75rem 2rem 2rem 2rem;
+  }
+  
+  .explorer-section {
+    margin: 0 24px 1.5rem 24px;
+    padding: 1.75rem 2rem 2rem 2rem;
+  }
+  
+  .create-design-btn-wrap {
+    margin: 1.25rem 24px 0 24px;
+  }
+  
+  .dock-area {
+    margin: 0 24px 1.5rem 24px;
+  }
+  
+  .header-content {
+    padding: 1.25rem 1.5rem;
+  }
+  
+  .header-title {
+    font-size: 1.5rem;
+  }
+  
+  .header-tab {
+    padding: 0.55rem 1.25rem;
+    font-size: 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  /* Small mobile devices */
+  .main-content-wrapper {
+    padding-top: 120px;
+  }
+  
+  .header-content {
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+  }
+  
+  .header-tabs {
+    width: 100%;
+    justify-content: center;
+  }
+  
+  .problem-formulation-section {
+    margin: 12px 12px 0.75rem 12px;
+  }
+  
+  .explorer-section {
+    margin: 0 12px 0.75rem 12px;
+    padding: 1rem 0.75rem 1rem 0.75rem;
+  }
+  
+  .create-design-btn-wrap {
+    margin: 0.75rem 12px 0 12px;
+  }
+  
+  .dock-area {
+    margin: 0 12px 0.75rem 12px;
   }
 }
 </style>
