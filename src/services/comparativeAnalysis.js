@@ -85,8 +85,13 @@ export async function runComparativeAnalysis(runAConfig, runBConfig) {
 
     if (response.data.status === 'success') {
       // Extract run results
+      // Prefer DB runId from loaded previous run (starts with 'loaded_run_');
+      // only fall back to backend's run_a_id if we don't have a DB one.
+      const resolvedRunAId = (runAData && runAData.data && typeof runAData.data.runId === 'string' && runAData.data.runId.startsWith('loaded_run_'))
+        ? runAData.data.runId
+        : (response.data.run_a_id || 'runA');
       const runAResults = {
-        runId: response.data.run_a_id || 'runA',
+        runId: resolvedRunAId,
         points: response.data.run_a_points || (runAData ? runAData.data.points : 0),
         pareto: response.data.run_a_pareto || (runAData ? runAData.data.pareto : 0),
         bestEnergy: response.data.run_a_best_energy || (runAData ? runAData.data.bestEnergy : 0),
@@ -95,8 +100,11 @@ export async function runComparativeAnalysis(runAConfig, runBConfig) {
         timestamp: new Date().toISOString()
       };
 
+      const resolvedRunBId = (runBData && runBData.data && typeof runBData.data.runId === 'string' && runBData.data.runId.startsWith('loaded_run_'))
+        ? runBData.data.runId
+        : (response.data.run_b_id || 'runB');
       const runBResults = {
-        runId: response.data.run_b_id || 'runB',
+        runId: resolvedRunBId,
         points: response.data.run_b_points || (runBData ? runBData.data.points : 0),
         pareto: response.data.run_b_pareto || (runBData ? runBData.data.pareto : 0),
         bestEnergy: response.data.run_b_best_energy || (runBData ? runBData.data.bestEnergy : 0),

@@ -39,28 +39,6 @@
               </select>
               <div v-if="validationErrors.model" class="field-error">{{ validationErrors.model }}</div>
             </div>
-            <div class="form-group">
-              <label class="form-label" for="algorithm">Select Algorithm</label>
-              <select id="algorithm" v-model="selectedAlgorithm" class="form-select" :class="{ 'error': validationErrors.algorithm }">
-                <option value="Genetic Algorithm">Genetic Algorithm</option>
-                <option value="Full-Factorial">Full-Factorial</option>
-              </select>
-              <div v-if="validationErrors.algorithm" class="field-error">{{ validationErrors.algorithm }}</div>
-            </div>
-            <div class="form-group">
-              <label class="form-label">Traces & Weights</label>
-              <div v-for="(tw, idx) in traceWeights" :key="idx" class="trace-weight-row">
-                <select v-model="tw.name" class="form-select trace-select">
-                  <option v-for="trace in traceOptions" :key="trace" :value="trace">{{ trace }}</option>
-                </select>
-                <input type="number" v-model.number="tw.weight" min="0" max="1" step="0.01" class="form-input trace-weight-input" placeholder="Weight (0-1)" />
-                <button type="button" class="remove-trace-btn" @click="removeTrace(idx)">❌</button>
-              </div>
-              <button type="button" class="add-trace-btn" @click="addTrace">+ Add Trace</button>
-              <div v-if="validationErrors.traces" class="field-error">{{ validationErrors.traces }}</div>
-            </div>
-          </div>
-          <div class="form-col">
             <div class="form-group" style="position: relative;">
               <label class="form-label">Select Objectives</label>
               <div class="custom-multiselect" @click="dropdownOpen = !dropdownOpen" :class="{ 'error': validationErrors.objectives }">
@@ -77,6 +55,28 @@
                 </div>
               </div>
               <div v-if="validationErrors.objectives" class="field-error">{{ validationErrors.objectives }}</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Traces & Weights</label>
+              <div v-for="(tw, idx) in traceWeights" :key="idx" class="trace-weight-row">
+                <select v-model="tw.name" class="form-select trace-select">
+                  <option v-for="trace in traceOptions" :key="trace" :value="trace">{{ trace }}</option>
+                </select>
+                <input type="number" v-model.number="tw.weight" min="0" max="1" step="0.01" class="form-input trace-weight-input" placeholder="Weight (0-1)" />
+                <button type="button" class="remove-trace-btn" @click="removeTrace(idx)">❌</button>
+              </div>
+              <button type="button" class="add-trace-btn" @click="addTrace">+ Add Trace</button>
+              <div v-if="validationErrors.traces" class="field-error">{{ validationErrors.traces }}</div>
+            </div>
+          </div>
+          <div class="form-col">
+            <div class="form-group">
+              <label class="form-label" for="algorithm">Select Algorithm</label>
+              <select id="algorithm" v-model="selectedAlgorithm" class="form-select" :class="{ 'error': validationErrors.algorithm }">
+                <option value="Genetic Algorithm">Genetic Algorithm</option>
+                <option value="Full-Factorial">Full-Factorial</option>
+              </select>
+              <div v-if="validationErrors.algorithm" class="field-error">{{ validationErrors.algorithm }}</div>
             </div>
             <div v-if="selectedAlgorithm === 'Genetic Algorithm'" class="form-group">
               <label class="form-label" for="population">Population Size</label>
@@ -150,6 +150,13 @@
           </div>
         </div>
         
+        <!-- Restart From Previous Run Controls -->
+        <div v-if="loadedRunMetadata" class="form-group">
+          <label class="form-label" for="restart-generations">Generations for Restarted Run</label>
+          <input id="restart-generations" type="number" v-model.number="restartGenerations" min="1" class="form-input" />
+          <small class="form-hint">Starts a new GA run seeded with the loaded designs as the initial population.</small>
+        </div>
+
         <!-- Loaded Run Configuration Display -->
         <div v-if="loadedRunMetadata" class="loaded-run-config">
           <h4 class="config-title">Loaded Run Configuration</h4>
@@ -189,14 +196,15 @@
           <button class="btn btn-primary" :disabled="!selectedPreviousRun" @click="loadPreviousRun">
             Load Run
           </button>
+
           <button 
-            type="button" 
-            class="btn btn-secondary restart-run-btn" 
-            :disabled="!hasOptimizationData || !loadedRunMetadata"
-            @click="restartRun"
+            class="btn btn-secondary" 
+            :disabled="!loadedRunMetadata || !selectedPreviousRun || loading"
+            @click="restartFromPreviousRun"
           >
-            Restart Run
+            Restart From This Run
           </button>
+
           <button 
             type="button" 
             class="btn btn-secondary data-mining-btn" 
@@ -271,12 +279,14 @@ const RunForm = defineComponent({
             <option value="HISIM">HISIM</option>
           </select>
         </div>
-        <div class="form-group">
-          <label class="form-label">Select Algorithm</label>
-          <select v-model="$props.algorithm" class="form-select">
-            <option value="Genetic Algorithm">Genetic Algorithm</option>
-            <option value="Full-Factorial">Full-Factorial</option>
-          </select>
+        <div class="form-group" style="position: relative;">
+          <label class="form-label">Select Objectives</label>
+          <div class="custom-multiselect">
+            <div class="selected-summary">
+              {{$props.selectedObjectives.length ? $props.selectedObjectives.join(', ') : 'Select objectives...'}}
+            </div>
+            <!-- For brevity, not implementing dropdown here -->
+          </div>
         </div>
         <div class="form-group">
           <label class="form-label">Traces & Weights</label>
@@ -291,14 +301,12 @@ const RunForm = defineComponent({
         </div>
       </div>
       <div class="form-col">
-        <div class="form-group" style="position: relative;">
-          <label class="form-label">Select Objectives</label>
-          <div class="custom-multiselect">
-            <div class="selected-summary">
-              {{$props.selectedObjectives.length ? $props.selectedObjectives.join(', ') : 'Select objectives...'}}
-            </div>
-            <!-- For brevity, not implementing dropdown here -->
-          </div>
+        <div class="form-group">
+          <label class="form-label">Select Algorithm</label>
+          <select v-model="$props.algorithm" class="form-select">
+            <option value="Genetic Algorithm">Genetic Algorithm</option>
+            <option value="Full-Factorial">Full-Factorial</option>
+          </select>
         </div>
         <div v-if="$props.algorithm === 'Genetic Algorithm'" class="form-group">
           <label class="form-label">Population Size</label>
@@ -390,6 +398,7 @@ export default {
       selectedPreviousRun: '',
       loadingBackupFiles: false, // Track loading state for backup files
       loadedRunMetadata: null, // Will store metadata of the loaded run
+      restartGenerations: 20,
     };
   },
   computed: {
@@ -584,6 +593,46 @@ export default {
         console.error('Error loading previous run:', error);
       }
     },
+    async restartFromPreviousRun() {
+      if (!this.loadedRunMetadata || !this.selectedPreviousRun) return;
+      try {
+        this.loading = true;
+        // Build traces payload from loaded metadata if available
+        const traces = Array.isArray(this.loadedRunMetadata.traces)
+          ? this.loadedRunMetadata.traces
+          : [];
+        const response = await axios.post('/api/restart-run/', {
+          backup_filename: this.selectedPreviousRun,
+          generations: this.restartGenerations,
+          traces
+        });
+          if (response.data && response.data.status === 'success') {
+            this.loading = false;
+            this.hasOptimizationData = true;
+            this.currentRunId = response.data.run_id; // e.g., restarted_run_*
+            
+            // Use initial points data directly from backend response
+            const initialPoints = response.data.initial_points || [];
+            console.log('Backend returned initial points:', initialPoints.length);
+            
+            // Emit to parent so plot shows original points immediately
+            this.$emit('optimization-success', {
+              data: initialPoints,
+              plot_data: initialPoints,
+              run_directory: response.data.run_id,
+              restarted_from_backup: true,
+              backup_filename: this.selectedPreviousRun
+            });
+            this.$emit('run-id-updated', response.data.run_id);
+          } else {
+          throw new Error(response.data?.message || 'Failed to restart run');
+        }
+      } catch (error) {
+        console.error('Error restarting from previous run:', error);
+        this.errorMessage = error.response?.data?.message || error.message || 'Failed to restart from previous run.';
+        this.loading = false;
+      }
+    },
     async fetchBackupFiles() {
       this.loadingBackupFiles = true;
       try {
@@ -761,128 +810,7 @@ export default {
       const date = new Date(timestamp);
       return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
     },
-    async restartRun() {
-      if (!this.loadedRunMetadata) {
-        this.errorMessage = 'No previous run data to restart from.';
-        return;
-      }
 
-      this.loading = true;
-      this.errorMessage = '';
-      this.validationErrors = {};
-
-      // Re-initialize forms with loaded data
-      this.selectedModel = this.loadedRunMetadata.model || 'CASCADE';
-      this.selectedAlgorithm = this.loadedRunMetadata.algorithm || 'Genetic Algorithm';
-      this.selectedObjectives = this.loadedRunMetadata.objectives || [];
-      this.populationSize = this.loadedRunMetadata.population_size || 50;
-      this.generations = this.loadedRunMetadata.generations || 100;
-      this.gridSize = this.loadedRunMetadata.grid_size || 10;
-
-      // Re-initialize trace weights and names
-      this.traceWeights = this.loadedRunMetadata.traces.map(trace => ({
-        name: trace.name,
-        weight: trace.weight
-      }));
-
-      // Validate the form to ensure all data is correct
-      const validation = this.validateForm();
-      if (!validation.isValid) {
-        this.validationErrors = validation.errors;
-        this.errorMessage = 'Please fix the validation errors below to restart the run.';
-        this.loading = false;
-        return;
-      }
-
-      // Get the loaded points data to use as initial population
-      // We need to extract the design variables (gpu, attn, sparse, conv) from the loaded points
-      let initialPopulation = null;
-      if (this.currentRunId && this.currentRunId.startsWith('loaded_run_')) {
-        try {
-          // Get the loaded points data from the parent component or stored data
-          const response = await axios.post('/api/load-previous-run/', {
-            backup_filename: this.selectedPreviousRun
-          });
-          
-          if (response.data.status === 'success' && response.data.points) {
-            // Convert chiplet counts to 12-element array format expected by GA
-            // Each element represents a slot: 0=GPU, 1=Attention, 2=Sparse, 3=Convolution
-            initialPopulation = response.data.points.map(point => {
-              const gpu = point.gpu || 0;
-              const attn = point.attn || 0;
-              const sparse = point.sparse || 0;
-              const conv = point.conv || 0;
-              
-              // Create 12-element array
-              const slotArray = [];
-              
-              // Add GPU slots (0)
-              for (let i = 0; i < gpu; i++) {
-                slotArray.push(0);
-              }
-              
-              // Add Attention slots (1)
-              for (let i = 0; i < attn; i++) {
-                slotArray.push(1);
-              }
-              
-              // Add Sparse slots (2)
-              for (let i = 0; i < sparse; i++) {
-                slotArray.push(2);
-              }
-              
-              // Add Convolution slots (3)
-              for (let i = 0; i < conv; i++) {
-                slotArray.push(3);
-              }
-              
-              // Fill remaining slots with GPU (0) to reach 12 total
-              while (slotArray.length < 12) {
-                slotArray.push(0);
-              }
-              
-              return slotArray;
-            });
-            console.log('Converted initial population to 12-element format:', initialPopulation);
-          }
-        } catch (error) {
-          console.warn('Could not load points for initial population:', error);
-          // Continue without initial population if there's an error
-        }
-      }
-
-      // Prepare payload for new optimization with initial population
-      const payload = {
-        model: this.selectedModel,
-        algorithm: this.selectedAlgorithm,
-        objectives: this.selectedObjectives,
-        traces: this.traceWeights.map(tw => ({ name: tw.name, weight: tw.weight })),
-        population_size: this.populationSize,
-        generations: this.generations,
-        initial_population: initialPopulation // Add initial population if available
-      };
-
-      try {
-        const response = await runOptimization(payload);
-        console.log('ProblemFormulation: Restart optimization successful');
-        console.log('ProblemFormulation: Response data:', response.data);
-        
-        this.loading = false;
-        this.hasOptimizationData = true; // Set data availability
-        this.currentRunId = response.data.run_directory; // Store the run ID for polling
-        
-        // Emit event for parent/plot update if needed
-        this.$emit('optimization-success', response.data);
-        this.$emit('run-id-updated', this.currentRunId);
-        
-        // Switch to the new optimization view to show results
-        this.setView('new-optimization');
-      } catch (error) {
-        this.loading = false;
-        this.errorMessage = error.response?.data?.error || 'Failed to restart optimization.';
-        console.error('Error restarting optimization:', error);
-      }
-    }
   },
   mounted() {
     document.addEventListener('click', this.handleClickOutside);
@@ -1350,23 +1278,7 @@ export default {
   color: #2d3748;
   font-weight: 500;
 }
-.restart-run-btn {
-  background: transparent;
-  color: #337aff;
-  border: 1.5px solid #337aff;
-  box-shadow: none;
-}
-.restart-run-btn:hover:not(:disabled) {
-  background: #eaf1ff;
-  color: #2356b8;
-  border-color: #2356b8;
-}
-.restart-run-btn:disabled {
-  background: #f5f5f5;
-  color: #ccc;
-  border-color: #ccc;
-  cursor: not-allowed;
-}
+
 @media (max-width: 900px) {
   .form-grid {
     flex-direction: column;

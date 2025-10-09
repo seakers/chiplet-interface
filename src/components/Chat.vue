@@ -14,6 +14,12 @@
                     </template>
                     <template v-else>
                         <span v-html="renderMessageWithLinks(msg.text)"></span>
+                        <div v-if="msg.sender === 'chat' && msg.citations && msg.citations.length" class="citations">
+                            <div v-for="c in msg.citations" :key="c.tag" class="citation-item">
+                                <span class="citation-tag">[{{ c.tag }}]</span>
+                                <span class="citation-path">{{ c.file_path || (c.metadata && c.metadata.file_path) || '' }}</span>
+                            </div>
+                        </div>
                     </template>
                 </div>
                 <!-- Show loading when waiting for a response -->
@@ -90,6 +96,17 @@ export default {
                 // If backend returns a 'message' field (optimization confirmation), show it immediately
                 if (response.message) {
                     this.messages.push({ text: response.message, sender: "chat" });
+                    // If a run was started via chat, fetch latest run directory and notify parent
+                    if (response.run_started) {
+                        try {
+                            const latest = await axios.get('/api/get-latest-run-directory/');
+                            if (latest.data && latest.data.status === 'success' && latest.data.run_directory) {
+                                this.$emit('run-id-updated', latest.data.run_directory);
+                            }
+                        } catch (e) {
+                            console.warn('Failed to get latest run directory after chat start:', e?.message || e);
+                        }
+                    }
                     
                     // Check if this is a highlighting response
                     if (response.highlighting_data) {
@@ -105,7 +122,7 @@ export default {
 
                 // Otherwise, show LLM response (and you may want to show Typing... for slow LLMs)
                 if (response.response) {
-                    this.messages.push({ text: response.response, sender: "chat" });
+                    this.messages.push({ text: response.response, sender: "chat", citations: response.citations || [] });
                 }
                 this.loading = false;
                 await nextTick();
@@ -222,9 +239,19 @@ export default {
                 // If backend returns a 'message' field (optimization confirmation), show it immediately
                 if (response.message) {
                     this.messages.push({ text: response.message, sender: "chat" });
+                    if (response.run_started) {
+                        try {
+                            const latest = await axios.get('/api/get-latest-run-directory/');
+                            if (latest.data && latest.data.status === 'success' && latest.data.run_directory) {
+                                this.$emit('run-id-updated', latest.data.run_directory);
+                            }
+                        } catch (e) {
+                            console.warn('Failed to get latest run directory after chat start:', e?.message || e);
+                        }
+                    }
                 } else if (response.response) {
                     // Show LLM response
-                    this.messages.push({ text: response.response, sender: "chat" });
+                    this.messages.push({ text: response.response, sender: "chat", citations: response.citations || [] });
                 }
             } catch (error) {
                 console.error("Error sending message to AI:", error);
@@ -250,7 +277,7 @@ export default {
                 if (response.message) {
                     this.messages.push({ text: response.message, sender: "chat" });
                 } else if (response.response) {
-                    this.messages.push({ text: response.response, sender: "chat" });
+                    this.messages.push({ text: response.response, sender: "chat", citations: response.citations || [] });
                 }
             } catch (error) {
                 console.error("Error sending backend prompt:", error);

@@ -56,6 +56,9 @@ const latestCompositeLabel = ref("");
 // Add flag to track loaded run data
 const hasLoadedRunData = ref(false);
 
+// Add flag to track if we've set initial points for restarted run
+const hasSetInitialRestartPoints = ref(false);
+
 // Add highlighting functionality
 const highlightedPoints = ref([]); // Array of point indices to highlight
 
@@ -170,10 +173,20 @@ const fetchChartData = async (runId = null) => {
         }
         
         // Check if this is a loaded run and pass the correct file path
+        console.log('Plot fetchChartData - currentRunId:', props.currentRunId);
+        console.log('Plot fetchChartData - hasLoadedRunData:', hasLoadedRunData.value);
+        
         if (hasLoadedRunData.value && props.currentRunId && props.currentRunId.startsWith('loaded_run_')) {
             const tempFilePath = `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${props.currentRunId}.csv`;
             params.file_path = tempFilePath;
             console.log('Polling with loaded run file path:', tempFilePath);
+        } else if (props.currentRunId && props.currentRunId.startsWith('restarted_run_')) {
+            // For restarted runs, poll the main points.csv (which will have new GA points)
+            const restartedPath = `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/${props.currentRunId}/points.csv`;
+            params.file_path = restartedPath;
+            console.log('Polling with restarted run file path:', restartedPath);
+        } else {
+            console.log('Using default polling (no specific run ID detected)');
         }
         
         const response = await axios.get(url, { params });
@@ -348,20 +361,20 @@ function buildChartData() {
           ...pt,
           x: pt.x,
           y: pt.y,
-          backgroundColor: (i === hoveredPointIndex.value) ? highlightColor : getColorForPoint(pt, globalIndex),
-          borderColor: highlightColor, // Yellow border for highlighted
-          borderWidth: 5, // Much thicker border for highlighted
-          radius: (i === hoveredPointIndex.value) ? 8 : 6,
+          backgroundColor: getColorForPoint(pt, globalIndex),
+          borderColor: highlightColor,
+          borderWidth: 3,
+          radius: 6,
         });
       } else {
         normalOptimization.push({
           ...pt,
           x: pt.x,
           y: pt.y,
-          backgroundColor: (i === hoveredPointIndex.value) ? highlightColor : getColorForPoint(pt, globalIndex),
+          backgroundColor: getColorForPoint(pt, globalIndex),
           borderColor: getColorForPoint(pt, globalIndex),
           borderWidth: 1,
-          radius: (i === hoveredPointIndex.value) ? 8 : 6,
+          radius: 6,
         });
         
         // Debug logging
@@ -406,8 +419,25 @@ function buildChartData() {
       });
     }
     
-    // Add highlighted optimization points as separate dataset
+    // Add highlighted optimization points as separate datasets: a halo ring and the base point
     if (highlightedOptimization.length > 0) {
+      // 1) Halo ring behind the highlighted points
+      datasets.push({
+        label: 'Highlight Halo',
+        data: highlightedOptimization.map(p => ({
+          ...p,
+          radius: 10,
+          backgroundColor: 'rgba(255, 215, 0, 0.05)',
+          borderColor: highlightColor,
+          borderWidth: 4,
+        })),
+        backgroundColor: () => 'rgba(255, 215, 0, 0.05)',
+        borderColor: () => highlightColor,
+        pointRadius: 10,
+        pointBorderWidth: 4,
+      });
+
+      // 2) The highlighted points themselves
       datasets.push({
         label: 'Highlighted Designs',
         data: highlightedOptimization,
@@ -435,10 +465,11 @@ function buildChartData() {
             pt.gpu === point.gpu && pt.attn === point.attn &&
             pt.sparse === point.sparse && pt.conv === point.conv
           );
-          return getColorForPoint(point, globalIndex);
+          // Draw yellow border on highlighted point itself
+          return highlightedPoints.value.includes(globalIndex) ? highlightColor : getColorForPoint(point, globalIndex);
         },
         pointRadius: 6,
-        pointBorderWidth: 5,
+        pointBorderWidth: 3,
       });
     }
   }
@@ -699,7 +730,8 @@ function updateChart() {
         chartInstance.data.datasets[i].data = newSet.data;
         chartInstance.data.datasets[i].label = newSet.label;
         chartInstance.data.datasets[i].backgroundColor = newSet.backgroundColor;
-        chartInstance.data.datasets[i].borderColor = newSet.borderColor;
+        // Ensure stroke color is set for point outlines
+        chartInstance.data.datasets[i].borderColor = newSet.borderColor || chartInstance.data.datasets[i].borderColor;
         chartInstance.data.datasets[i].pointRadius = newSet.pointRadius;
       } else {
         chartInstance.data.datasets.push(newSet);
@@ -788,20 +820,52 @@ const updateChartData = (newChartData, traceMetadata = null) => {
     // Check if this is a loaded run (has loaded_from_backup flag)
     const isLoadedRun = newChartData && newChartData.loaded_from_backup;
     
-    // Only update if we have new data OR if this is not a loaded run
-    // This prevents clearing loaded run data when polling returns empty data
-    if (newPoints.length > 0 || !hasLoadedRunData.value) {
-      allPoints.value = newPoints;
-      // Restore custom points
-      if (currentCustomPoints.length > 0) {
-        allPoints.value.push(...currentCustomPoints);
-        console.log('Restored custom points after normal update. Total points:', allPoints.value.length);
+    // Special handling for restarted runs - append new points instead of replacing
+    if (props.currentRunId && props.currentRunId.startsWith('restarted_run_')) {
+      console.log('Restarted run mode - appending new points to existing points');
+      console.log('Current allPoints before processing:', allPoints.value.length);
+      console.log('New points from polling:', newPoints.length);
+      console.log('hasSetInitialRestartPoints:', hasSetInitialRestartPoints.value);
+      
+      // For restarted runs, NEVER replace allPoints, only append new ones
+      if (newPoints.length > 0) {
+        // Find new points that aren't already in allPoints
+        const existingPoints = allPoints.value.map(pt => `${pt.x},${pt.y},${pt.gpu},${pt.attn},${pt.sparse},${pt.conv}`);
+        const trulyNewPoints = newPoints.filter(pt => {
+          const pointKey = `${pt.x},${pt.y},${pt.gpu},${pt.attn},${pt.sparse},${pt.conv}`;
+          return !existingPoints.includes(pointKey);
+        });
+        
+        if (trulyNewPoints.length > 0) {
+          allPoints.value.push(...trulyNewPoints);
+          console.log(`Added ${trulyNewPoints.length} new points to restarted run. Total points:`, allPoints.value.length);
+        } else {
+          console.log('No truly new points to add (all were duplicates)');
+        }
+      } else {
+        console.log('No new points from polling, preserving existing points');
       }
-      console.log('Normal mode - Total points after update:', allPoints.value.length);
+      
+      // Always update the chart after processing restarted run data
+      updateChart();
+      return; // Exit early to prevent normal processing
     } else {
-      console.log('Skipping update for loaded run with empty polling data');
-      console.log('hasLoadedRunData.value:', hasLoadedRunData.value);
-      console.log('newPoints.length:', newPoints.length);
+      // Regular behavior for non-restarted runs
+      // Only update if we have new data OR if this is not a loaded run
+      // This prevents clearing loaded run data when polling returns empty data
+      if (newPoints.length > 0 || !hasLoadedRunData.value) {
+        allPoints.value = newPoints;
+        // Restore custom points
+        if (currentCustomPoints.length > 0) {
+          allPoints.value.push(...currentCustomPoints);
+          console.log('Restored custom points after normal update. Total points:', allPoints.value.length);
+        }
+        console.log('Normal mode - Total points after update:', allPoints.value.length);
+      } else {
+        console.log('Skipping update for loaded run with empty polling data');
+        console.log('hasLoadedRunData.value:', hasLoadedRunData.value);
+        console.log('newPoints.length:', newPoints.length);
+      }
     }
   }
   
@@ -1073,6 +1137,7 @@ const resetZoom = () => {
 
 defineExpose({
     updateChartData,
+    updateChart,
     getChartData,
     showPointPopup,
     closePointPopup,
@@ -1097,7 +1162,13 @@ defineExpose({
     },
     zoomIn,
     zoomOut,
-    resetZoom
+    resetZoom,
+    // Expose allPoints for direct access
+    get allPoints() { return allPoints.value; },
+    set allPoints(value) { allPoints.value = value; },
+    // Expose hasSetInitialRestartPoints for direct access
+    get hasSetInitialRestartPoints() { return hasSetInitialRestartPoints.value; },
+    set hasSetInitialRestartPoints(value) { hasSetInitialRestartPoints.value = value; }
 });
 
 let refreshInterval = null;

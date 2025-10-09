@@ -77,6 +77,7 @@
 
 <script>
 import Plot from './Plot.vue';
+import axios from 'axios';
 
 export default {
   name: 'TabbedPlotView',
@@ -123,12 +124,35 @@ export default {
       return `${time} ms`;
     },
     async fetchComparativeData() {
+      // Prefer run-scoped comparison using selected run IDs; fallback to legacy CSV-based endpoint
+      const runAId = this.runAData && this.runAData.runId ? this.runAData.runId : null;
+      const runBId = this.runBData && this.runBData.runId ? this.runBData.runId : null;
+      if (runAId && runBId) {
+        try {
+          const resp = await axios.get('/api/runs/compare/', {
+            params: { run_a_id: runAId, run_b_id: runBId }
+          });
+          if (resp.data && resp.data.status === 'success' && resp.data.comparison) {
+            const runA = (resp.data.comparison.run_a && resp.data.comparison.run_a.design_points) || [];
+            const runB = (resp.data.comparison.run_b && resp.data.comparison.run_b.design_points) || [];
+            // Attach run labels so existing filtering works
+            const combined = [
+              ...runA.map(pt => ({ ...pt, run: 'A' })),
+              ...runB.map(pt => ({ ...pt, run: 'B' }))
+            ];
+            return combined;
+          }
+        } catch (error) {
+          console.error('Error fetching comparison by run IDs, falling back:', error);
+        }
+      }
+      // Fallback: legacy endpoint reading default CSVs
       try {
         const response = await fetch('http://127.0.0.1:8000/api/chart-data/?comparative=true');
         const data = await response.json();
         return data.data || [];
       } catch (error) {
-        console.error('Error fetching comparative data:', error);
+        console.error('Error fetching comparative data (legacy):', error);
         return [];
       }
     },

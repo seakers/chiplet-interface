@@ -8,6 +8,7 @@
           <!-- Fixed Problem Formulation Section -->
           <div class="problem-formulation-section">
             <ProblemFormulation 
+              ref="ProblemFormulation"
               @optimization-success="handleOptimizationSuccess"
               @data-mining-complete="handleDataMiningComplete"
               @report-generated="handleReportGenerated"
@@ -26,6 +27,10 @@
               @point-selected="handlePointSelected" 
               @point-hovered="handlePointHovered" 
             />
+          </div>
+          
+          <!-- Design Visualizer Section -->
+          <div class="design-visualizer-section" v-if="!isComparativeAnalysisActive">
             <DesignVisualizer 
               :hoveredPoint="hoveredPoint"
               :selectedPoint="selectedPoint"
@@ -57,7 +62,7 @@
         <!-- RIGHT COLUMN (Chat) -->
         <div class="right-col">
           <div class="chat-scroll-wrap">
-            <Chat ref="Chat" :chatOpen="true" @highlighting-response="handleHighlightingResponse" />
+            <Chat ref="Chat" :chatOpen="true" @highlighting-response="handleHighlightingResponse" @run-id-updated="handleRunIdUpdated" />
           </div>
         </div>
       </div>
@@ -219,10 +224,27 @@ export default {
         // Update plot data
         if (this.$refs.Plot && this.$refs.Plot.updateChartData) {
           console.log('Updating plot with new data');
-          if (response.plot_data) {
-            this.$refs.Plot.updateChartData(response.plot_data);
-          } else if (response.data) {
-            this.$refs.Plot.updateChartData(response.data);
+          
+          // Special handling for restarted runs - don't replace, just set initial data
+          if (response.restarted_from_backup) {
+            console.log('Restarted run detected - setting initial data without replacing');
+            console.log('Setting initial points:', response.plot_data?.length || response.data?.length);
+            if (response.plot_data) {
+              this.$refs.Plot.allPoints = response.plot_data;
+              this.$refs.Plot.updateChart();
+              console.log('Initial points set, allPoints now has:', this.$refs.Plot.allPoints.length, 'points');
+            } else if (response.data) {
+              this.$refs.Plot.allPoints = response.data;
+              this.$refs.Plot.updateChart();
+              console.log('Initial points set, allPoints now has:', this.$refs.Plot.allPoints.length, 'points');
+            }
+          } else {
+            // Normal behavior for new runs
+            if (response.plot_data) {
+              this.$refs.Plot.updateChartData(response.plot_data);
+            } else if (response.data) {
+              this.$refs.Plot.updateChartData(response.data);
+            }
           }
         }
         
@@ -460,6 +482,24 @@ export default {
       this.currentRunId = runId;
       console.log('App.vue: Current run ID updated to:', this.currentRunId);
       console.log('App.vue: Plot ref exists:', !!this.$refs.Plot);
+      
+      // Force immediate plot refresh for restarted runs to show old points
+      if (this.$refs.Plot && runId && runId.startsWith('restarted_run_')) {
+        console.log('App.vue: Forcing immediate plot refresh for restarted run');
+        this.$nextTick(() => {
+          this.$refs.Plot.refreshPlot();
+        });
+      }
+      
+      // Enable Data Mining / Generate Report in ProblemFormulation when run comes from chat
+      if (this.$refs.ProblemFormulation) {
+        try {
+          this.$refs.ProblemFormulation.hasOptimizationData = true;
+          this.$refs.ProblemFormulation.currentRunId = runId;
+        } catch (e) {
+          console.warn('Could not set ProblemFormulation state from App:', e?.message || e);
+        }
+      }
       console.log('=== App.vue: handleRunIdUpdated END ===');
     },
     handleViewChanged(view) {
@@ -595,8 +635,10 @@ export default {
         if (this.currentRunId) {
           try {
             console.log('Fetching detailed point context...');
+            const designName = `${point.gpu || 0}gpu${point.attn || 0}attn${point.sparse || 0}sparse${point.conv || 0}conv`;
             const contextResponse = await getPointContext({
               run_id: this.currentRunId,
+              design: designName,
               gpu: point.gpu || 0,
               attn: point.attn || 0,
               sparse: point.sparse || 0,
@@ -713,6 +755,20 @@ export default {
   padding: 32px 32px 0 32px;
 }
 .explorer-section {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+  padding: 2rem 2.5rem 2.5rem 2.5rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: 32px;
+  margin-right: 32px;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.design-visualizer-section {
   background: #fff;
   border-radius: 10px;
   box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
@@ -992,6 +1048,12 @@ export default {
     border-radius: 8px;
   }
   
+  .design-visualizer-section {
+    margin: 0 16px 1rem 16px;
+    padding: 1.5rem 1rem 1.5rem 1rem;
+    border-radius: 8px;
+  }
+  
   .create-design-btn-wrap {
     margin: 1rem 16px 0 16px;
     flex-direction: column;
@@ -1054,6 +1116,11 @@ export default {
     padding: 1.75rem 2rem 2rem 2rem;
   }
   
+  .design-visualizer-section {
+    margin: 0 24px 1.5rem 24px;
+    padding: 1.75rem 2rem 2rem 2rem;
+  }
+  
   .create-design-btn-wrap {
     margin: 1.25rem 24px 0 24px;
   }
@@ -1098,6 +1165,11 @@ export default {
   }
   
   .explorer-section {
+    margin: 0 12px 0.75rem 12px;
+    padding: 1rem 0.75rem 1rem 0.75rem;
+  }
+  
+  .design-visualizer-section {
     margin: 0 12px 0.75rem 12px;
     padding: 1rem 0.75rem 1rem 0.75rem;
   }
