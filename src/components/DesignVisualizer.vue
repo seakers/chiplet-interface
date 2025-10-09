@@ -142,92 +142,93 @@
       </div>
 
       <!-- Show single design info when only one state is active -->
-      <div v-else class="single-design-layout">
-        <!-- Design Information Section -->
-        <div class="design-info-section">
+      <div v-else class="three-column-layout">
+        <!-- Column 1: Design Information -->
+        <div class="design-info-column">
           <h4>Design Information</h4>
-          <div class="info-grid">
-            <div class="performance-row">
-              <div class="performance-metrics">
-                <div class="info-item">
-                  <span class="info-label">Execution Time:</span>
-                  <span class="info-value">{{ formatValue(currentPoint.x) }} ms</span>
-                </div>
-                <div class="info-item">
-                  <span class="info-label">Energy:</span>
-                  <span class="info-value">{{ formatValue(currentPoint.y) }} mJ</span>
-                </div>
-              </div>
-              
-              <!-- Chiplet counts on the right side -->
-              <div class="chiplet-counts-sidebar">
-                <div class="chiplet-count-item">
-                  <span class="chiplet-count-label">GPU:</span>
-                  <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.gpu || 0 }}</span>
-                  <input 
-                    v-else
-                    v-model.number="editableValues.gpu" 
-                    type="number" 
-                    min="0" 
-                    max="12" 
-                    class="chiplet-count-input"
-                    @input="validateTotalChiplets"
-                  />
-                </div>
-                <div class="chiplet-count-item">
-                  <span class="chiplet-count-label">Attention:</span>
-                  <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.attn || 0 }}</span>
-                  <input 
-                    v-else
-                    v-model.number="editableValues.attn" 
-                    type="number" 
-                    min="0" 
-                    max="12" 
-                    class="chiplet-count-input"
-                    @input="validateTotalChiplets"
-                  />
-                </div>
-                <div class="chiplet-count-item">
-                  <span class="chiplet-count-label">Sparse:</span>
-                  <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.sparse || 0 }}</span>
-                  <input 
-                    v-else
-                    v-model.number="editableValues.sparse" 
-                    type="number" 
-                    min="0" 
-                    max="12" 
-                    class="chiplet-count-input"
-                    @input="validateTotalChiplets"
-                  />
-                </div>
-                <div class="chiplet-count-item">
-                  <span class="chiplet-count-label">Convolution:</span>
-                  <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.conv || 0 }}</span>
-                  <input 
-                    v-else
-                    v-model.number="editableValues.conv" 
-                    type="number" 
-                    min="0" 
-                    max="12" 
-                    class="chiplet-count-input"
-                    @input="validateTotalChiplets"
-                  />
-                </div>
-              </div>
+          <div class="performance-metrics">
+            <div class="info-item">
+              <span class="info-label">Execution Time:</span>
+              <span class="info-value">{{ formatValue(currentPoint.x) }} ms</span>
             </div>
-            
-            <!-- Show total chiplets and validation -->
-            <div v-if="isSelected" class="info-item total-chiplets">
-              <span class="info-label">Total Chiplets:</span>
-              <span class="info-value" :class="{ 'error': totalChiplets > 12 }">
+            <div class="info-item">
+              <span class="info-label">Energy:</span>
+              <span class="info-value">{{ formatValue(currentPoint.y) }} mJ</span>
+            </div>
+            <!-- Add more objectives here if needed -->
+          </div>
+        </div>
+
+        <!-- Column 2: Chiplet Counts -->
+        <div class="chiplet-counts-column">
+          <h4>Chiplet Counts</h4>
+          <div class="chiplet-counts">
+            <div class="chiplet-count-item">
+              <span class="chiplet-count-label">GPU:</span>
+              <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.gpu || 0 }}</span>
+              <input 
+                v-else
+                v-model.number="editableValues.gpu" 
+                type="number" 
+                min="0" 
+                max="12" 
+                class="chiplet-count-input"
+                @input="validateTotalChiplets"
+              />
+            </div>
+            <div class="chiplet-count-item">
+              <span class="chiplet-count-label">Attention:</span>
+              <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.attn || 0 }}</span>
+              <input 
+                v-else
+                v-model.number="editableValues.attn" 
+                type="number" 
+                min="0" 
+                max="12" 
+                class="chiplet-count-input"
+                @input="validateTotalChiplets"
+              />
+            </div>
+            <div class="chiplet-count-item">
+              <span class="chiplet-count-label">Sparse:</span>
+              <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.sparse || 0 }}</span>
+              <input 
+                v-else
+                v-model.number="editableValues.sparse" 
+                type="number" 
+                min="0" 
+                max="12" 
+                class="chiplet-count-input"
+                @input="validateTotalChiplets"
+              />
+            </div>
+            <div class="chiplet-count-item">
+              <span class="chiplet-count-label">Convolution:</span>
+              <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.conv || 0 }}</span>
+              <input 
+                v-else
+                v-model.number="editableValues.conv" 
+                type="number" 
+                min="0" 
+                max="12" 
+                class="chiplet-count-input"
+                @input="validateTotalChiplets"
+              />
+            </div>
+            <div v-if="isSelected" class="chiplet-count-item total-chiplets">
+              <span class="chiplet-count-label">Total:</span>
+              <span class="chiplet-count-value" :class="{ 
+                'error': totalChiplets > 12 || totalChiplets < 12,
+                'warning': totalChiplets < 12 && totalChiplets > 0
+              }">
                 {{ totalChiplets }}/12
               </span>
             </div>
           </div>
         </div>
 
-        <!-- Chiplet Visualization Section -->
-        <div class="chiplet-visualization-section">
+        <!-- Column 3: Chiplet Layout -->
+        <div class="chiplet-layout-column">
           <h4>Chiplet Layout</h4>
           <div class="chiplet-grid">
             <!-- GPU Chiplets -->
@@ -265,7 +266,7 @@
           <button 
             class="btn btn-primary" 
             @click="evaluateDesign"
-            :disabled="!hasChanges || totalChiplets > 12"
+            :disabled="!hasChanges || totalChiplets > 12 || totalChiplets < 12"
             :title="getEvaluateButtonTitle()"
           >
             Evaluate Design
@@ -414,13 +415,16 @@ export default {
       if (this.totalChiplets > 12) {
         return 'Total chiplets cannot exceed 12';
       }
+      if (this.totalChiplets < 12) {
+        return 'Design must have exactly 12 chiplets';
+      }
       if (!this.hasChanges) {
         return 'No changes made to evaluate';
       }
       return 'Evaluate the modified design';
     },
     evaluateDesign() {
-      if (!this.hasChanges || this.totalChiplets > 12) {
+      if (!this.hasChanges || this.totalChiplets > 12 || this.totalChiplets < 12) {
         return;
       }
       
@@ -444,7 +448,7 @@ export default {
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
-  padding: 1.5rem;
+  padding: 2rem;
   margin-top: 1rem;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
@@ -507,11 +511,104 @@ export default {
   gap: 1.5rem;
 }
 
-.single-design-layout {
+.three-column-layout {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-  align-items: start;
+  grid-template-columns: auto 1fr 3fr;
+  gap: 0;
+  align-items: stretch;
+  width: 100%;
+  min-height: 300px;
+}
+
+/* Column 1: Design Information */
+.design-info-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-right: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 8px 0 0 8px;
+  min-width: fit-content;
+  width: auto;
+}
+
+.design-info-column h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #2d3748;
+}
+
+.performance-metrics {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.info-item {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+  white-space: nowrap;
+}
+
+.info-label {
+  font-size: 0.9rem;
+  color: #4a5568;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.info-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #2d3748;
+  flex-shrink: 0;
+}
+
+/* Column 2: Chiplet Counts */
+.chiplet-counts-column {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.5rem;
+  border-right: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.chiplet-counts-column h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #2d3748;
+}
+
+.chiplet-counts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+/* Column 3: Chiplet Layout */
+.chiplet-layout-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #f8fafc;
+  border-radius: 0 8px 8px 0;
+  min-height: 200px;
+  align-items: center;
+  justify-content: flex-start;
+}
+
+.chiplet-layout-column h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #2d3748;
 }
 
 .dual-state-info {
@@ -631,16 +728,24 @@ export default {
   box-shadow: 0 0 0 2px rgba(111, 66, 193, 0.25);
 }
 
-.total-chiplets .info-value.error {
+.total-chiplets .chiplet-count-value.error {
   color: #e53e3e;
+  font-weight: 700;
+}
+
+.total-chiplets .chiplet-count-value.warning {
+  color: #f6ad55;
   font-weight: 700;
 }
 
 .chiplet-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 0.5rem;
-  max-width: 300px;
+  gap: 0.8rem;
+  width: 100%;
+  max-width: 450px;
+  height: fit-content;
+  margin: 0 auto;
 }
 
 .chiplet {
@@ -649,10 +754,12 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.7rem;
-  font-weight: 600;
+  font-size: 0.75rem;
+  font-weight: 700;
   color: white;
-  border: 2px solid transparent;
+  width: 55px;
+  height: 55px;
+  border: 1px solid transparent;
   transition: all 0.2s ease;
 }
 
@@ -852,8 +959,8 @@ export default {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 20px;
-  margin-bottom: 12px;
+  gap: 24px;
+  margin-bottom: 16px;
 }
 
 .performance-metrics {
@@ -866,13 +973,14 @@ export default {
 .chiplet-counts-sidebar {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-width: 120px;
+  gap: 10px;
+  min-width: 140px;
 }
 
 .chiplet-count-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
@@ -909,6 +1017,27 @@ export default {
   .visualizer-content {
     grid-template-columns: 1fr;
     gap: 1rem;
+  }
+  
+  .three-column-layout {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  
+  .design-info-column {
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+    border-radius: 8px 8px 0 0;
+  }
+  
+  .chiplet-counts-column {
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+    border-radius: 0;
+  }
+  
+  .chiplet-layout-column {
+    border-radius: 0 0 8px 8px;
   }
   
   .chiplet-grid {
