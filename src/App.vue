@@ -19,7 +19,7 @@
           
           <div class="explorer-section" v-if="!isComparativeAnalysisActive">
             <div class="explorer-header">
-              <h2 class="explorer-title">📈 Design Space Explorer</h2>
+              <h2 class="explorer-title">Design Space Explorer</h2>
               <!-- Zoom Controls -->
               <div class="zoom-controls">
                 <button @click="zoomIn" class="zoom-btn" title="Zoom In">
@@ -55,19 +55,26 @@
             />
           </div>
           
+          <!-- Data Mining Section -->
+          <div class="data-mining-section" v-if="!isComparativeAnalysisActive && openWindows.DataMining">
+            <DataMining 
+              :filePath="currentFilePath"
+              @close="closeWindow('DataMining')"
+              @send-insights-to-chat="handleSendInsightsToChat"
+            />
+          </div>
+          
           <!-- Docked windows area: always rendered -->
           <div class="dock-area">
             <draggable v-model="dockOrder" :options="{animation:150, direction:'horizontal'}" class="dock-row">
               <template #item="{element}">
                 <component
                   :is="element"
-                  v-if="openWindows[element]"
+                  v-if="openWindows[element] && element !== 'DataMining'"
                   @close="closeWindow(element)"
                   class="dock-window"
                   :closable="true"
-                  :filePath="element === 'DataMining' ? currentFilePath : null"
-                  v-on="element === 'DataMining' ? { 'send-insights-to-chat': handleSendInsightsToChat } :
-                        element === 'RunManager' ? { 'plot-run': handlePlotRun, 'plot-runs': handlePlotRuns, 'show-comparison': handleShowComparison } : {}"
+                  v-on="element === 'RunManager' ? { 'plot-run': handlePlotRun, 'plot-runs': handlePlotRuns, 'show-comparison': handleShowComparison } : {}"
                 />
               </template>
             </draggable>
@@ -815,6 +822,20 @@ export default {
   transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
+.data-mining-section {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+  padding: 2rem 2.5rem 2.5rem 2.5rem;
+  margin-bottom: 2rem;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: 32px;
+  margin-right: 32px;
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
 .explorer-header {
   display: flex;
   align-items: center;
@@ -1127,6 +1148,12 @@ export default {
     border-radius: 8px;
   }
   
+  .data-mining-section {
+    margin: 0 16px 1rem 16px;
+    padding: 1.5rem 1rem 1.5rem 1rem;
+    border-radius: 8px;
+  }
+  
   .create-design-btn-wrap {
     margin: 1rem 16px 0 16px;
     flex-direction: column;
@@ -1194,6 +1221,11 @@ export default {
     padding: 1.75rem 2rem 2rem 2rem;
   }
   
+  .data-mining-section {
+    margin: 0 24px 1.5rem 24px;
+    padding: 1.75rem 2rem 2rem 2rem;
+  }
+  
   .create-design-btn-wrap {
     margin: 1.25rem 24px 0 24px;
   }
@@ -1243,6 +1275,11 @@ export default {
   }
   
   .design-visualizer-section {
+    margin: 0 12px 0.75rem 12px;
+    padding: 1rem 0.75rem 1rem 0.75rem;
+  }
+  
+  .data-mining-section {
     margin: 0 12px 0.75rem 12px;
     padding: 1rem 0.75rem 1rem 0.75rem;
   }

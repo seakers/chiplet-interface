@@ -277,7 +277,7 @@
 
     <!-- Empty State -->
     <div v-else class="empty-state">
-      <div class="empty-icon">📊</div>
+      <div class="empty-icon"></div>
       <p>Hover over a design to view details</p>
       <p class="empty-subtitle">Click to select a design for modification</p>
     </div>
