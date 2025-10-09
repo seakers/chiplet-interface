@@ -623,7 +623,7 @@ const createChart = () => {
                     },
                     zoom: {
                         wheel: {
-                            enabled: true,
+                            enabled: false,
                         },
                         pinch: {
                             enabled: true
@@ -1297,18 +1297,6 @@ const handlePointAction = () => {
             </label>
         </div>
         
-        <!-- Zoom Controls -->
-        <div class="zoom-controls">
-            <button @click="zoomIn" class="zoom-btn" title="Zoom In">
-                <span>+</span>
-            </button>
-            <button @click="zoomOut" class="zoom-btn" title="Zoom Out">
-                <span>−</span>
-            </button>
-            <button @click="resetZoom" class="zoom-btn reset" title="Reset Zoom">
-                <span>⟲</span>
-            </button>
-        </div>
         
         <!-- Legend -->
         <div class="plot-legend" ref="legendRef" @mousedown="startLegendDrag">
@@ -1344,47 +1332,6 @@ const handlePointAction = () => {
     justify-content: space-between;
 }
 
-.zoom-controls {
-    position: absolute;
-    top: 18px;
-    left: 24px;
-    display: flex;
-    gap: 4px;
-    z-index: 10;
-}
-
-.zoom-btn {
-    width: 32px;
-    height: 32px;
-    border: 1px solid #e0e6ed;
-    background: white;
-    border-radius: 6px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 16px;
-    font-weight: bold;
-    color: #4a5568;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.zoom-btn:hover {
-    background: #f8fafc;
-    border-color: #cbd5e0;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-}
-
-.zoom-btn:active {
-    transform: translateY(0);
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.zoom-btn.reset {
-    font-size: 14px;
-}
 
 .plot-legend {
   position: absolute;

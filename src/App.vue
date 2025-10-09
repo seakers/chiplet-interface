@@ -18,7 +18,21 @@
           </div>
           
           <div class="explorer-section" v-if="!isComparativeAnalysisActive">
-            <h2 class="explorer-title">📈 Design Space Explorer</h2>
+            <div class="explorer-header">
+              <h2 class="explorer-title">📈 Design Space Explorer</h2>
+              <!-- Zoom Controls -->
+              <div class="zoom-controls">
+                <button @click="zoomIn" class="zoom-btn" title="Zoom In">
+                  Zoom In
+                </button>
+                <button @click="zoomOut" class="zoom-btn" title="Zoom Out">
+                  Zoom Out
+                </button>
+                <button @click="resetZoom" class="zoom-btn reset" title="Reset Zoom">
+                  Reset
+                </button>
+              </div>
+            </div>
             <Plot 
               ref="Plot" 
               :isComparative="isComparative" 
@@ -676,6 +690,25 @@ export default {
         }
       }
     },
+    
+    // Zoom control methods
+    zoomIn() {
+      if (this.$refs.Plot && this.$refs.Plot.zoomIn) {
+        this.$refs.Plot.zoomIn();
+      }
+    },
+    
+    zoomOut() {
+      if (this.$refs.Plot && this.$refs.Plot.zoomOut) {
+        this.$refs.Plot.zoomOut();
+      }
+    },
+    
+    resetZoom() {
+      if (this.$refs.Plot && this.$refs.Plot.resetZoom) {
+        this.$refs.Plot.resetZoom();
+      }
+    },
   },
 };
 </script>
@@ -788,6 +821,46 @@ export default {
   justify-content: space-between;
   width: 100%;
   margin-bottom: 1.2rem;
+}
+
+.zoom-controls {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.zoom-btn {
+  min-width: 80px;
+  height: 32px;
+  border: 1px solid #e0e6ed;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #4a5568;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  padding: 0 12px;
+}
+
+.zoom-btn:hover {
+  background: #f8fafc;
+  border-color: #cbd5e0;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.zoom-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.zoom-btn.reset {
+  /* Reset button uses same styling as other buttons */
 }
 .explorer-title {
   font-size: 1.4rem;
