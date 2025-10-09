@@ -31,6 +31,9 @@
                 <button @click="resetZoom" class="zoom-btn reset" title="Reset Zoom">
                   Reset
                 </button>
+                <button @click="toggleRegionSelection" class="zoom-btn region-btn" title="Select Region">
+                  Select Region
+                </button>
               </div>
             </div>
             <Plot 
@@ -43,6 +46,83 @@
             />
           </div>
           
+          <!-- Region Selection Section -->
+          <div class="region-selection-section" v-if="!isComparativeAnalysisActive && showRegionSection">
+            <div class="region-selection-header">
+              <h2 class="region-selection-title">Region Selection</h2>
+            </div>
+            <div class="region-selection-content">
+              <div class="region-section">
+                <h4>Rectangular Region</h4>
+                <div class="region-inputs">
+                  <div class="input-group">
+                    <label>Energy Range:</label>
+                    <input 
+                      type="number" 
+                      v-model.number="rectangularRegion.energyMin" 
+                      placeholder="Min" 
+                      class="region-input"
+                    />
+                    <span>to</span>
+                    <input 
+                      type="number" 
+                      v-model.number="rectangularRegion.energyMax" 
+                      placeholder="Max" 
+                      class="region-input"
+                    />
+                  </div>
+                  <div class="input-group">
+                    <label>Time Range:</label>
+                    <input 
+                      type="number" 
+                      v-model.number="rectangularRegion.timeMin" 
+                      placeholder="Min" 
+                      class="region-input"
+                    />
+                    <span>to</span>
+                    <input 
+                      type="number" 
+                      v-model.number="rectangularRegion.timeMax" 
+                      placeholder="Max" 
+                      class="region-input"
+                    />
+                  </div>
+                </div>
+                <div class="region-actions">
+                  <button @click="applyRectangularRegion" class="btn btn-primary">Apply</button>
+                  <button @click="clearRectangularRegion" class="btn btn-secondary">Clear</button>
+                </div>
+              </div>
+              
+              <!-- Pareto Ranks Region -->
+              <div class="region-section">
+                <h4>Pareto Ranks</h4>
+                <div class="pareto-inputs">
+                  <label class="checkbox"><input type="checkbox" v-model="paretoRanks" :value="1" /> Top 1</label>
+                  <label class="checkbox"><input type="checkbox" v-model="paretoRanks" :value="2" /> Top 2</label>
+                  <label class="checkbox"><input type="checkbox" v-model="paretoRanks" :value="3" /> Top 3</label>
+                </div>
+                <div class="region-actions">
+                  <button @click="applyParetoRegion" class="btn btn-primary">Apply</button>
+                  <button @click="clearParetoRegion" class="btn btn-secondary">Clear</button>
+                </div>
+              </div>
+
+              <!-- Manual Selection -->
+              <div class="region-section">
+                <h4>Manual Selection</h4>
+                <div class="manual-actions">
+                  <button @click="startManualSelection" class="btn btn-primary">Start Selecting</button>
+                  <button @click="clearManualSelection" class="btn btn-secondary">Clear Manual</button>
+                </div>
+              </div>
+
+              <div class="region-actions-global">
+                <button @click="clearAllRegions" class="btn btn-secondary">Clear All Regions</button>
+              </div>
+            </div>
+          </div>
+
           <!-- Design Visualizer Section -->
           <div class="design-visualizer-section" v-if="!isComparativeAnalysisActive">
             <DesignVisualizer 
@@ -143,6 +223,14 @@ export default {
       selectedPoint: null,
       customPoints: [], // Store custom design points persistently
       customPoint: null, // Store the most recently created custom point for comparison
+      showRegionSection: false,
+      rectangularRegion: {
+        energyMin: null,
+        energyMax: null,
+        timeMin: null,
+        timeMax: null
+      },
+      paretoRanks: [1]
     };
   },
   computed: {
@@ -716,6 +804,58 @@ export default {
         this.$refs.Plot.resetZoom();
       }
     },
+    toggleRegionSelection() {
+      this.showRegionSection = !this.showRegionSection;
+    },
+    applyRectangularRegion() {
+      if (this.$refs.Plot && this.$refs.Plot.applyRectangularRegion) {
+        this.$refs.Plot.applyRectangularRegion(this.rectangularRegion);
+      }
+    },
+    applyParetoRegion() {
+      if (this.$refs.Plot && this.$refs.Plot.applyParetoRegion) {
+        this.$refs.Plot.applyParetoRegion(this.paretoRanks);
+      }
+    },
+    clearRectangularRegion() {
+      this.rectangularRegion = {
+        energyMin: null,
+        energyMax: null,
+        timeMin: null,
+        timeMax: null
+      };
+      if (this.$refs.Plot && this.$refs.Plot.clearRectangularRegion) {
+        this.$refs.Plot.clearRectangularRegion();
+      }
+    },
+    clearAllRegions() {
+      this.rectangularRegion = {
+        energyMin: null,
+        energyMax: null,
+        timeMin: null,
+        timeMax: null
+      };
+      this.paretoRanks = [1];
+      if (this.$refs.Plot && this.$refs.Plot.clearAllRegions) {
+        this.$refs.Plot.clearAllRegions();
+      }
+    },
+    clearParetoRegion() {
+      this.paretoRanks = [];
+      if (this.$refs.Plot && this.$refs.Plot.clearParetoRegion) {
+        this.$refs.Plot.clearParetoRegion();
+      }
+    },
+    startManualSelection() {
+      if (this.$refs.Plot && this.$refs.Plot.startManualSelection) {
+        this.$refs.Plot.startManualSelection();
+      }
+    },
+    clearManualSelection() {
+      if (this.$refs.Plot && this.$refs.Plot.clearManualSelection) {
+        this.$refs.Plot.clearManualSelection();
+      }
+    }
   },
 };
 </script>
@@ -882,6 +1022,223 @@ export default {
 
 .zoom-btn.reset {
   /* Reset button uses same styling as other buttons */
+}
+
+.zoom-btn.region-btn {
+  background: #eaf1ff;
+  color: #337aff;
+  border-color: #337aff;
+}
+
+.zoom-btn.region-btn:hover {
+  background: #d1e7ff;
+  color: #2356b8;
+  border-color: #2356b8;
+}
+
+/* Region Selection Section */
+.region-selection-section {
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+  padding: 2rem 2.5rem 2.5rem 2.5rem;
+  margin-bottom: 2rem;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-left: 32px;
+  margin-right: 32px;
+  border: 1px solid #e2e8f0;
+}
+
+.region-selection-header {
+  padding: 1.25rem 1.5rem 0 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+  margin-bottom: 0;
+}
+
+.region-selection-title {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #2d3748;
+  margin: 0 0 0.75rem 0;
+}
+
+.region-selection-content {
+  padding: 1rem 1.5rem 1rem 1.5rem;
+}
+
+.region-section {
+  margin-bottom: 0.75rem;
+}
+
+.region-section h4 {
+  margin: 0 0 1rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #2d3748;
+}
+
+.region-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.pareto-inputs {
+  display: flex;
+  gap: 1rem;
+}
+
+.pareto-inputs .checkbox {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.manual-actions {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.input-group label {
+  font-weight: 500;
+  color: #4a5568;
+  min-width: 100px;
+  flex-shrink: 0;
+}
+
+.region-input {
+  flex: 1;
+  min-width: 80px;
+  padding: 0.5rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  transition: border-color 0.2s ease;
+}
+
+.region-input:focus {
+  outline: none;
+  border-color: #3182ce;
+  box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1);
+}
+
+.input-group span {
+  color: #718096;
+  font-size: 0.875rem;
+}
+
+.region-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.region-actions-global {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 1rem;
+  display: flex;
+  justify-content: center;
+}
+
+.btn {
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.btn-primary {
+  background: #3182ce;
+  color: white;
+  border-color: #3182ce;
+}
+
+.btn-primary:hover {
+  background: #2c5aa0;
+  border-color: #2c5aa0;
+}
+
+.btn-secondary {
+  background: #f7fafc;
+  color: #4a5568;
+  border-color: #e2e8f0;
+}
+
+.btn-secondary:hover {
+  background: #edf2f7;
+  color: #2d3748;
+  border-color: #cbd5e0;
+}
+
+/* Responsive styles for region selection section */
+@media (max-width: 600px) {
+  .region-selection-section {
+    margin: 1rem 0;
+  }
+  
+  .region-selection-header {
+    padding: 1rem 1rem 0 1rem;
+  }
+  
+  .region-selection-content {
+    padding: 1rem;
+  }
+  
+  .region-selection-title {
+    font-size: 1.2rem;
+  }
+  
+  .input-group {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .input-group label {
+    min-width: auto;
+  }
+  
+  .region-input {
+    width: 100%;
+    min-width: auto;
+  }
+}
+
+@media (min-width: 601px) and (max-width: 1024px) {
+  .region-selection-section {
+    margin: 1.5rem 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .region-selection-section {
+    margin: 0.75rem 0;
+  }
+  
+  .region-selection-header {
+    padding: 0.75rem 0.75rem 0 0.75rem;
+  }
+  
+  .region-selection-content {
+    padding: 0.75rem;
+  }
+  
+  .region-selection-title {
+    font-size: 1.1rem;
+  }
 }
 .explorer-title {
   font-size: 1.4rem;

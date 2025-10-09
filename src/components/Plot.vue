@@ -70,6 +70,35 @@ const comparativeLoadingMessage = ref('');
 const selectedPointIndex = ref(null);
 // Add hovered point state
 const hoveredPointIndex = ref(null);
+
+// Add region selection state
+const showRegionPanel = ref(false);
+const regionSelection = ref({
+  rectangular: {
+    active: false,
+    energyMin: null,
+    energyMax: null,
+    timeMin: null,
+    timeMax: null,
+    points: []
+  },
+  pareto: {
+    active: false,
+    ranks: [1, 3],
+    points: []
+  },
+  manual: {
+    active: false,
+    points: []
+  }
+});
+
+// Region colors
+const regionColors = {
+  rectangular: '#10B981', // Green
+  pareto: '#EF4444',      // Red
+  manual: '#8B5CF6'       // Purple
+};
 // Color palette for algorithm:trace combos
 const palette = [
   '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'
@@ -81,6 +110,123 @@ const customColor = '#800080';
 const highlightColor = '#FFD700';
 const selectedColor = '#FF6B6B'; // Red color for selected points
 const colorMap = ref({}); // key: 'algorithm:trace' => color
+
+// Region selection methods
+const hasActiveRegions = () => {
+  return regionSelection.value.rectangular.active || 
+         regionSelection.value.pareto.active || 
+         regionSelection.value.manual.active;
+};
+
+const getPointRegions = (point, pointIndex) => {
+  const regions = [];
+  
+  if (regionSelection.value.rectangular.active && 
+      isPointInRectangularRegion(point)) {
+    regions.push('rectangular');
+  }
+  
+  if (regionSelection.value.pareto.active && 
+      isPointInParetoRegion(point, pointIndex)) {
+    regions.push('pareto');
+  }
+  
+  if (regionSelection.value.manual.active && 
+      regionSelection.value.manual.points.includes(pointIndex)) {
+    regions.push('manual');
+  }
+  
+  return regions;
+};
+
+const isPointInRectangularRegion = (point) => {
+  const rect = regionSelection.value.rectangular;
+  if (!rect.active) return false;
+  
+  const inEnergyRange = (!rect.energyMin || point.y >= rect.energyMin) && 
+                       (!rect.energyMax || point.y <= rect.energyMax);
+  const inTimeRange = (!rect.timeMin || point.x >= rect.timeMin) && 
+                     (!rect.timeMax || point.x <= rect.timeMax);
+  
+  return inEnergyRange && inTimeRange;
+};
+
+const isPointInParetoRegion = (point, pointIndex) => {
+  // This would need to be implemented based on Pareto ranking logic
+  // For now, return false as placeholder
+  return false;
+};
+
+const mixColors = (colors) => {
+  // Simple color mixing for overlaps
+  if (colors.includes('rectangular') && colors.includes('pareto')) return '#F97316'; // Orange
+  if (colors.includes('rectangular') && colors.includes('manual')) return '#14B8A6'; // Teal
+  if (colors.includes('pareto') && colors.includes('manual')) return '#EC4899'; // Magenta
+  if (colors.length === 3) return '#1E40AF'; // Dark Blue
+  return colors[0];
+};
+
+// Region selection control methods
+const applyRectangularRegion = (regionData) => {
+  regionSelection.value.rectangular.energyMin = regionData.energyMin;
+  regionSelection.value.rectangular.energyMax = regionData.energyMax;
+  regionSelection.value.rectangular.timeMin = regionData.timeMin;
+  regionSelection.value.rectangular.timeMax = regionData.timeMax;
+  regionSelection.value.rectangular.active = true;
+  updateChart();
+};
+
+const clearRectangularRegion = () => {
+  regionSelection.value.rectangular.active = false;
+  regionSelection.value.rectangular.energyMin = null;
+  regionSelection.value.rectangular.energyMax = null;
+  regionSelection.value.rectangular.timeMin = null;
+  regionSelection.value.rectangular.timeMax = null;
+  updateChart();
+};
+
+const clearAllRegions = () => {
+  regionSelection.value.rectangular.active = false;
+  regionSelection.value.pareto.active = false;
+  regionSelection.value.manual.active = false;
+  regionSelection.value.rectangular.energyMin = null;
+  regionSelection.value.rectangular.energyMax = null;
+  regionSelection.value.rectangular.timeMin = null;
+  regionSelection.value.rectangular.timeMax = null;
+  regionSelection.value.manual.points = [];
+  updateChart();
+};
+
+const toggleRegionSelection = () => {
+  showRegionPanel.value = !showRegionPanel.value;
+};
+
+// Pareto region controls
+const applyParetoRegion = (ranks) => {
+  regionSelection.value.pareto.active = Array.isArray(ranks) && ranks.length > 0;
+  regionSelection.value.pareto.ranks = ranks || [];
+  updateChart();
+};
+
+const clearParetoRegion = () => {
+  regionSelection.value.pareto.active = false;
+  regionSelection.value.pareto.ranks = [];
+  updateChart();
+};
+
+// Manual selection controls (placeholder hooks)
+const startManualSelection = () => {
+  // Future: enable click-to-select on chart
+  regionSelection.value.manual.active = true;
+  updateChart();
+};
+
+const clearManualSelection = () => {
+  regionSelection.value.manual.active = false;
+  regionSelection.value.manual.points = [];
+  updateChart();
+};
+
 
 function getColorForPoint(point, pointIndex = null) {
   // Defensive check for undefined or null point
@@ -99,6 +245,21 @@ function getColorForPoint(point, pointIndex = null) {
   if (pointIndex !== null && pointIndex === selectedPointIndex.value) {
     console.log('🎯 SELECTED POINT DETECTED! Point index:', pointIndex, 'Selected index:', selectedPointIndex.value);
     return selectedColor; // Red for selected points
+  }
+  
+  // Check for region selection (after hover/selected)
+  if (hasActiveRegions()) {
+    const regions = getPointRegions(point, pointIndex);
+    if (regions.length > 0) {
+      if (regions.length === 1) {
+        return regionColors[regions[0]];
+      } else {
+        return mixColors(regions);
+      }
+    } else {
+      // Point not in any region - dim it
+      return '#1f77b4'; // Dimmed blue
+    }
   }
   
   // Check point type first
@@ -1163,6 +1324,14 @@ defineExpose({
     zoomIn,
     zoomOut,
     resetZoom,
+    toggleRegionSelection,
+    applyRectangularRegion,
+    clearRectangularRegion,
+    clearAllRegions,
+    applyParetoRegion,
+    clearParetoRegion,
+    startManualSelection,
+    clearManualSelection,
     // Expose allPoints for direct access
     get allPoints() { return allPoints.value; },
     set allPoints(value) { allPoints.value = value; },
@@ -1305,14 +1474,16 @@ const handlePointAction = () => {
             <span class="legend-label">{{ entry.label }}</span>
           </div>
         </div>
+        
+        
     </div>
 </template>
 
 <style scoped>
 .chart-container {
     width: 100%;
-    min-height: 420px;
-    height: 520px;
+    min-height: 520px;
+    height: 620px;
     padding-top: 20px;
     padding-bottom: 16px;
     display: flex;
@@ -1321,8 +1492,8 @@ const handlePointAction = () => {
     position: relative;
 }
 .plot-area {
-    min-height: 420px;
-    height: 520px;
+    min-height: 520px;
+    height: 620px;
 }
 .axis_select {
     display: flex;
@@ -1378,6 +1549,7 @@ const handlePointAction = () => {
   font-size: 0.95rem;
   color: #555;
 }
+
 
 .plot-loading-overlay {
   position: absolute;
