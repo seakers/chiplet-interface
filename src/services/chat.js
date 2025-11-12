@@ -45,7 +45,8 @@ export async function addInsightsContext(params) {
  * @returns {Promise<Object>} - The parsed response data
  */
 export async function getPointContext(params) {
-  const response = await axios.get('/api/get-point-context/', { params });
+  // const response = await axios.get('/api/get-point-context/', { params });
+  const response = await axios.get('/api/add-info/', { params });
   return response.data;
 }
 

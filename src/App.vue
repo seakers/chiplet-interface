@@ -735,6 +735,7 @@ export default {
       }
     },
     async sendPointContextToChat(point) {
+      console.log("sending data from frontent")
       try {
         // Prepare the summary context data
         const summaryInsights = `Selected design point: Execution Time: ${point.x}ms, Energy: ${point.y}mJ, GPU: ${point.gpu || 0}, Attention: ${point.attn || 0}, Sparse: ${point.sparse || 0}, Convolution: ${point.conv || 0}`;
