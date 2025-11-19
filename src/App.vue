@@ -14,6 +14,7 @@
               @report-generated="handleReportGenerated"
               @run-id-updated="handleRunIdUpdated"
               @view-changed="handleViewChanged"
+              
             />
           </div>
           
@@ -30,9 +31,6 @@
                 </button>
                 <button @click="resetZoom" class="zoom-btn reset" title="Reset Zoom">
                   Reset
-                </button>
-                <button @click="toggleRegionSelection" class="zoom-btn region-btn" title="Select Region">
-                  Select Region
                 </button>
               </div>
             </div>
@@ -948,6 +946,16 @@ export default {
   transition: opacity 0.3s ease, transform 0.3s ease;
 }
 
+.dual-plot-grid {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: 16px;
+}
+.plot-right { min-height: 420px; }
+@media (max-width: 1279px) {
+  .dual-plot-grid { grid-template-columns: 1fr; }
+}
+
 .design-visualizer-section {
   background: #fff;
   border-radius: 10px;
@@ -1022,18 +1030,6 @@ export default {
 
 .zoom-btn.reset {
   /* Reset button uses same styling as other buttons */
-}
-
-.zoom-btn.region-btn {
-  background: #eaf1ff;
-  color: #337aff;
-  border-color: #337aff;
-}
-
-.zoom-btn.region-btn:hover {
-  background: #d1e7ff;
-  color: #2356b8;
-  border-color: #2356b8;
 }
 
 /* Region Selection Section */

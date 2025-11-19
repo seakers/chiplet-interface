@@ -10,8 +10,8 @@
           <div class="card-content">
             <h3 class="card-title">Rule Mining</h3>
             <p class="card-description">
-              Discovers patterns and relationships between chiplet design features and performance outcomes. 
-              Identifies which feature combinations lead to optimal designs on the Pareto front.
+              Finds chiplet‑count rules (e.g., low/medium/high) that frequently occur in top Pareto ranks.
+              Reports confidence and lift to show rule strength.
             </p>
             <div class="card-features">
               <span class="feature-tag">Pattern Discovery</span>
@@ -30,8 +30,8 @@
           <div class="card-content">
             <h3 class="card-title">Distance Correlation Study</h3>
             <p class="card-description">
-              Analyzes both linear and nonlinear relationships between design features and performance metrics. 
-              Detects complex dependencies that standard correlation might miss.
+              Quantifies dependence between chiplet types and objectives (linear and nonlinear).
+              Higher distance‑correlation indicates a stronger relationship.
             </p>
             <div class="card-features">
               <span class="feature-tag">Nonlinear Analysis</span>
