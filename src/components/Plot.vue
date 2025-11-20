@@ -873,6 +873,22 @@ const createChart = () => {
                     console.log('Selected new point');
                     const pt = allPoints.value[globalIndex];
                     emit('point-selected', pt);
+                    (async () => {
+                      try {
+                        const params = {
+                          exe: pt?.x ?? '',
+                          energy: pt?.y ?? '',
+                          gpu: pt?.gpu ?? 0,
+                          attn: pt?.attn ?? 0,
+                          sparse: pt?.sparse ?? 0,
+                          conv: pt?.conv ?? 0,
+                        };
+                        await axios.get("http://127.0.0.1:8000/add-info/", { params });
+                        console.log("Sent design info to backend:", params);
+                      } catch (err) {
+                        console.error("Error sending design info to backend:", err);
+                      }
+                    })();
                   }
                 }
                 
