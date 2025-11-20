@@ -110,6 +110,12 @@ const customColor = '#800080';
 const highlightColor = '#FFD700';
 const selectedColor = '#FF6B6B'; // Red color for selected points
 const colorMap = ref({}); // key: 'algorithm:trace' => color
+const lastAlgorithm = ref((() => {
+  if (typeof window === 'undefined') return 'Genetic Algorithm';
+  if (window.__lastAlgorithm) return window.__lastAlgorithm;
+  if (window.localStorage) return window.localStorage.getItem('lastAlgorithm') || 'Genetic Algorithm';
+  return 'Genetic Algorithm';
+})());
 
 // Region selection methods
 const hasActiveRegions = () => {
@@ -262,13 +268,18 @@ function getColorForPoint(point, pointIndex = null) {
     }
   }
   
-  // Check point type first
+  // Check point type first (highest priority for custom designs)
   if (point.type === 'custom' || point.type === 'modified') {
     return customColor; // Purple for custom/modified points
   }
   
+  // Check algorithm field for Custom Design (in case type was lost)
+  if (point.algorithm === 'Custom Design' || point.algorithm === 'Manual') {
+    return customColor;
+  }
+  
   // Check source for backward compatibility
-  if (point.source === 'Manual' || point.label === 'Custom Design') {
+  if (point.source === 'Manual' || point.label === 'Custom Design' || point.label === 'Modified Design') {
     return customColor;
   }
   
@@ -281,6 +292,12 @@ function getColorForPoint(point, pointIndex = null) {
   }
   
   // Default: blue for optimization points
+  if (point.algorithm && typeof point.algorithm === 'string') {
+    const alg = point.algorithm.toLowerCase();
+    if (alg.includes('custom design')) return customColor; // Ensure custom designs stay purple
+    if (alg.includes('full-factorial')) return '#2ca02c'; // green distinct for Full-Factorial
+    if (alg.includes('genetic')) return '#1f77b4'; // blue for GA
+  }
   return palette[0];
 }
 
@@ -306,8 +323,8 @@ function getLegendEntries() {
       label = 'Custom Design';
       color = customColor;
     } else if (pt.algorithm && pt.algorithm.toLowerCase().includes('genetic')) {
-      key = pt.algorithm ? `Genetic Algorithm (${pt.algorithm})` : 'Genetic Algorithm';
-      label = pt.algorithm ? pt.algorithm : 'Genetic Algorithm';
+      key = pt.algorithm;
+      label = pt.algorithm;
       color = getColorForPoint(pt);
     } else {
       key = `${pt.algorithm}:${pt.algorithm}`;
@@ -348,6 +365,15 @@ const fetchChartData = async (runId = null) => {
             console.log('Polling with restarted run file path:', restartedPath);
         } else {
             console.log('Using default polling (no specific run ID detected)');
+        }
+        // Pass algorithm and run_id so backend labels points correctly in legend/colors
+        if (lastAlgorithm.value) {
+          params.algorithm = lastAlgorithm.value;
+        }
+        
+        // Pass run_id if available so backend can look up correct algorithm from database
+        if (props.currentRunId) {
+          params.run_id = props.currentRunId;
         }
         
         const response = await axios.get(url, { params });
@@ -405,7 +431,7 @@ function buildChartData() {
   // Categorize points by type
   const optimizationPoints = validPoints.filter(pt => 
     pt.type === 'optimization' || 
-    (!pt.type && !pt.source && !pt.label) // Default to optimization for backward compatibility
+    (!pt.type && !pt.source && !pt.label && pt.algorithm !== 'Custom Design' && pt.algorithm !== 'Manual') // Default to optimization for backward compatibility
   );
   
   const customPoints = validPoints.filter(pt => 
@@ -414,7 +440,8 @@ function buildChartData() {
     pt.source === 'Manual' || 
     pt.label === 'Custom Design' || 
     pt.label === 'Modified Design' ||
-    pt.algorithm === 'Manual'
+    pt.algorithm === 'Manual' ||
+    pt.algorithm === 'Custom Design'  // Include points with Custom Design algorithm
   );
   
   console.log('buildChartData - Optimization points:', optimizationPoints.length);
@@ -779,17 +806,29 @@ const createChart = () => {
                 },
                 zoom: {
                     pan: {
-                        enabled: true,
-                        mode: 'xy'
+                        enabled: false, // Disable panning/scrolling
+                        mode: 'xy',
+                        threshold: 10,
+                        modifierKey: null,
                     },
                     zoom: {
                         wheel: {
-                            enabled: false,
+                            enabled: false, // Disable wheel scrolling/zooming
+                            speed: 0.1,
+                            modifierKey: null,
                         },
                         pinch: {
-                            enabled: true
+                            enabled: false // Disable pinch zoom
+                        },
+                        drag: {
+                            enabled: false, // Disable drag zoom
+                            modifierKey: null,
                         },
                         mode: 'xy',
+                        limits: {
+                            x: { min: -Infinity, max: Infinity },
+                            y: { min: -Infinity, max: Infinity }
+                        }
                     }
                 }
             },
@@ -984,13 +1023,57 @@ const updateChartData = (newChartData, traceMetadata = null) => {
     }
   } else {
     // Normal mode - just use the new data, let custom points be handled naturally
+    const defaultAlgorithm = (newChartData && newChartData.metadata && newChartData.metadata.algorithm) || lastAlgorithm.value || 'Genetic Algorithm';
+    
+    // Preserve custom design markers when mapping new points
     const newPoints = newChartData && newChartData.map
-      ? newChartData.map(pt => ({
-          ...pt,
-          algorithm: pt.algorithm || 'Genetic Algorithm',
-          trace: pt.trace || '',
-        }))
+      ? newChartData.map(pt => {
+          // Check if this point matches any existing custom design point
+          const isCustomPoint = currentCustomPoints.some(customPt => 
+            Math.abs(customPt.x - pt.x) < 0.001 &&
+            Math.abs(customPt.y - pt.y) < 0.001 &&
+            customPt.gpu === pt.gpu &&
+            customPt.attn === pt.attn &&
+            customPt.sparse === pt.sparse &&
+            customPt.conv === pt.conv
+          );
+          
+          // If it's a custom point, preserve its markers; otherwise use default algorithm
+          if (isCustomPoint) {
+            // Find the matching custom point to preserve its properties
+            const matchingCustom = currentCustomPoints.find(customPt => 
+              Math.abs(customPt.x - pt.x) < 0.001 &&
+              Math.abs(customPt.y - pt.y) < 0.001 &&
+              customPt.gpu === pt.gpu &&
+              customPt.attn === pt.attn &&
+              customPt.sparse === pt.sparse &&
+              customPt.conv === pt.conv
+            );
+            return {
+              ...pt,
+              ...matchingCustom, // Preserve all custom point properties
+              algorithm: matchingCustom?.algorithm || 'Custom Design',
+              type: matchingCustom?.type || 'custom',
+              source: matchingCustom?.source || 'Manual',
+              label: matchingCustom?.label || 'Custom Design',
+              trace: pt.trace || matchingCustom?.trace || '',
+            };
+          } else {
+            // Regular point - use default algorithm
+            return {
+              ...pt,
+              algorithm: pt.algorithm || defaultAlgorithm,
+              trace: pt.trace || '',
+            };
+          }
+        })
       : [];
+    if (newChartData && newChartData.metadata && newChartData.metadata.algorithm) {
+      lastAlgorithm.value = newChartData.metadata.algorithm;
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('lastAlgorithm', lastAlgorithm.value);
+      }
+    }
     console.log('Normal mode - Processing new points:', newPoints.length);
     console.log('Sample new point:', newPoints[0]);
     
@@ -1459,14 +1542,18 @@ const handlePointAction = () => {
 
 <template>
     <div class="chart-container" style="position: relative;">
-        <canvas ref="chartRef"></canvas>
-        <div v-if="isEvaluatingDesign" class="plot-loading-overlay">
-            <div class="plot-loading-spinner"></div>
-            <div class="plot-loading-text">Evaluating design...</div>
-        </div>
-        <div v-if="isComparativeLoading" class="plot-loading-overlay">
-            <div class="plot-loading-spinner"></div>
-            <div class="plot-loading-text">{{ comparativeLoadingMessage }}</div>
+        <div class="plot-scroll-container">
+            <div class="plot-canvas-wrapper">
+                <canvas ref="chartRef"></canvas>
+                <div v-if="isEvaluatingDesign" class="plot-loading-overlay">
+                    <div class="plot-loading-spinner"></div>
+                    <div class="plot-loading-text">Evaluating design...</div>
+                </div>
+                <div v-if="isComparativeLoading" class="plot-loading-overlay">
+                    <div class="plot-loading-spinner"></div>
+                    <div class="plot-loading-text">{{ comparativeLoadingMessage }}</div>
+                </div>
+            </div>
         </div>
         <div class="axis_select">
             <label>Y Axis:
@@ -1481,7 +1568,6 @@ const handlePointAction = () => {
                 </select>
             </label>
         </div>
-        
         
         <!-- Legend -->
         <div class="plot-legend" ref="legendRef" @mousedown="startLegendDrag">
@@ -1507,6 +1593,32 @@ const handlePointAction = () => {
     align-items: center;
     position: relative;
 }
+
+.plot-scroll-container {
+    width: 100%;
+    height: calc(100% - 80px); /* Subtract space for axis_select at bottom */
+    overflow: visible;
+    position: relative;
+    border: 1px solid #e0e6ed;
+    border-radius: 8px;
+    background: #fff;
+    margin-bottom: 10px;
+}
+
+.plot-canvas-wrapper {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.plot-canvas-wrapper canvas {
+    display: block;
+    cursor: crosshair; /* Default cursor for chart */
+}
+
 .plot-area {
     min-height: 520px;
     height: 620px;

@@ -35,7 +35,7 @@
               <label class="form-label" for="model">Select Model</label>
               <select id="model" v-model="selectedModel" class="form-select" :class="{ 'error': validationErrors.model }">
                 <option value="CASCADE">CASCADE</option>
-                <option value="HISIM">HISIM</option>
+                <option value="PISTIL">PISTIL</option>
               </select>
               <div v-if="validationErrors.model" class="field-error">{{ validationErrors.model }}</div>
             </div>
@@ -88,11 +88,27 @@
               <input id="generations" type="number" v-model.number="generations" class="form-input" min="1" :class="{ 'error': validationErrors.generations }" />
               <div v-if="validationErrors.generations" class="field-error">{{ validationErrors.generations }}</div>
             </div>
-            <div v-if="selectedAlgorithm === 'Full-Factorial'" class="form-group">
-              <label class="form-label" for="gridSize">Grid Size</label>
-              <input id="gridSize" type="number" v-model.number="gridSize" class="form-input" min="1" :class="{ 'error': validationErrors.gridSize }" />
-              <div v-if="validationErrors.gridSize" class="field-error">{{ validationErrors.gridSize }}</div>
+          <div v-if="selectedAlgorithm === 'Full-Factorial'" class="form-group">
+            <label class="form-label">Total number of chiplets</label>
+            <input type="number" v-model.number="fullFactorialNumSlots" class="form-input" min="1" max="20" />
+            <small class="form-hint">Select up to 20</small>
+          </div>
+          <div v-if="selectedAlgorithm === 'Full-Factorial'" class="form-group" style="position: relative;">
+            <label class="form-label">Select chiplet types</label>
+            <div class="custom-multiselect" @click="chipletTypesDropdownOpen = !chipletTypesDropdownOpen">
+              <div class="selected-summary">
+                {{ selectedChipletTypes.length ? selectedChipletTypes.join(', ') : 'Select chiplet types...' }}
+              </div>
+              <div v-if="chipletTypesDropdownOpen" class="dropdown-list" @click.stop>
+                <div v-for="t in chipletTypeOptions" :key="t" class="dropdown-item">
+                  <label>
+                    <input type="checkbox" :value="t" v-model="selectedChipletTypes" />
+                    {{ t }}
+                  </label>
+                </div>
+              </div>
             </div>
+          </div>
           </div>
         </div>
         <div v-if="errorMessage" class="error-message">{{ errorMessage }}</div>
@@ -100,10 +116,25 @@
           The sum of all weights must be exactly 1.0. Current sum: {{ traceWeightsSum.toFixed(4) }}
         </div>
         <div class="form-actions">
-          <button type="submit" class="btn btn-primary run-btn" :disabled="loading || !isFormValid">
-            <span v-if="loading">Running...</span>
+          <button type="submit" class="btn btn-primary run-btn" :disabled="loading || isEstimating || isRunning || !isFormValid">
+            <span v-if="isEstimating">Estimating time...</span>
+            <span v-else-if="loading || isRunning">Running...</span>
             <span v-else>Run</span>
           </button>
+          <button
+            v-if="(loading || isRunning) && !isEstimating"
+            type="button"
+            class="btn btn-warning pause-btn"
+            @click="pauseRun"
+            :disabled="!(loading || isRunning)"
+          >Pause</button>
+          <button
+            v-if="(loading || isRunning) && !isEstimating"
+            type="button"
+            class="btn btn-danger stop-btn"
+            @click="stopRun"
+            :disabled="!(loading || isRunning)"
+          >Stop</button>
           <button 
             type="button" 
             class="btn btn-secondary data-mining-btn" 
@@ -122,6 +153,35 @@
           </button>
         </div>
       </form>
+    </div>
+
+    <!-- Estimation Modal -->
+    <div v-if="showEstimationModal" class="modal-overlay" @click.self="cancelFullFactorialRun">
+      <div class="modal-content">
+        <h3 class="modal-title">Full-Factorial Runtime Estimate</h3>
+        <div class="modal-body">
+          <p><strong>Designs:</strong> {{ estimationInfo.design_space_size }}</p>
+          <p><strong>Average evaluation time per design:</strong> {{ formatDuration(estimationInfo.avg_eval_ms) }}</p>
+          <p><strong>Total Estimated time:</strong> {{ formatDuration(estimationInfo.estimated_runtime_ms) }}</p>
+          <div class="form-group" style="margin-top: 0.5rem;">
+            <label class="form-label">Run mode</label>
+            <div class="radio-group">
+              <label class="radio-option">
+                <input type="radio" value="online" v-model="fullFactorialMode" />
+                <span>Online (plot as points arrive)</span>
+              </label>
+              <label class="radio-option">
+                <input type="radio" value="offline" v-model="fullFactorialMode" />
+                <span>Offline (plot when finished)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" @click="cancelFullFactorialRun">Cancel</button>
+          <button class="btn btn-primary" @click="confirmFullFactorialRun">Proceed</button>
+        </div>
+      </div>
     </div>
 
     <!-- Load Previous Run View -->
@@ -276,7 +336,7 @@ const RunForm = defineComponent({
           <label class="form-label">Select Model</label>
           <select v-model="$props.model" class="form-select">
             <option value="CASCADE">CASCADE</option>
-            <option value="HISIM">HISIM</option>
+            <option value="PISTIL">PISTIL</option>
           </select>
         </div>
         <div class="form-group" style="position: relative;">
@@ -369,6 +429,17 @@ export default {
       populationSize: 50,
       generations: 100,
       gridSize: 10,
+      // Full-Factorial specific inputs
+      fullFactorialNumSlots: 12,
+      chipletTypeOptions: ["GPU", "Attention", "Sparse", "Convolution"],
+      selectedChipletTypes: ["GPU", "Attention", "Sparse", "Convolution"],
+      chipletTypesDropdownOpen: false,
+      // Estimation modal state
+      showEstimationModal: false,
+      estimationInfo: { design_space_size: 0, avg_eval_ms: 0, estimated_runtime_ms: 0 },
+      fullFactorialMode: 'online',
+      isEstimating: false,
+      isRunning: false,
       dropdownOpen: false,
       selectedObjectives: [],
       objectivesOptions: [
@@ -399,6 +470,7 @@ export default {
       loadingBackupFiles: false, // Track loading state for backup files
       loadedRunMetadata: null, // Will store metadata of the loaded run
       restartGenerations: 20,
+      statusPollingInterval: null, // Interval for polling run status
     };
   },
   computed: {
@@ -421,7 +493,8 @@ export default {
     },
     validationSummary() {
       return this.validateForm().errors;
-    }
+    },
+    
   },
   methods: {
     validateForm() {
@@ -476,10 +549,7 @@ export default {
           isValid = false;
         }
       } else if (this.selectedAlgorithm === 'Full-Factorial') {
-        if (!this.gridSize || this.gridSize < 1) {
-          errors.gridSize = 'Grid size must be at least 1';
-          isValid = false;
-        }
+        // no extra params for v1 (unconstrained, total fixed at 12)
       }
 
       return { isValid, errors };
@@ -515,16 +585,76 @@ export default {
       this.hasOptimizationData = false; // Reset data availability when starting new optimization
       this.currentRunId = ''; // Reset run ID
       
+      // CRITICAL: Ensure algorithm is explicitly set based on user selection
+      const selectedAlgorithm = this.selectedAlgorithm || 'Genetic Algorithm';
+      console.log('ProblemFormulation: User selected algorithm:', selectedAlgorithm);
+      
       const payload = {
         model: this.selectedModel,
-        algorithm: this.selectedAlgorithm,
+        algorithm: selectedAlgorithm,  // Explicitly use selected algorithm
         objectives: this.selectedObjectives,
         traces: this.traceWeights.map(tw => ({ name: tw.name, weight: tw.weight })),
         population_size: this.populationSize,
         generations: this.generations,
       };
       
+      console.log('ProblemFormulation: Payload algorithm:', payload.algorithm);
+      console.log('ProblemFormulation: Full payload:', JSON.stringify(payload, null, 2));
+
+      // Full-Factorial: call estimator first, then confirm via modal, then run
+      if (this.selectedAlgorithm === 'Full-Factorial') {
+        const ffParams = {
+          ...payload,
+          selected_types: this.selectedChipletTypes,
+          num_slots: this.fullFactorialNumSlots || this.gridSize || 12,
+          trace_mode: this.traceWeights.length > 1 ? 'weighted' : 'single',
+          estimation_only: true,
+        };
+        try {
+          this.isEstimating = true;
+          const estimateResp = await runOptimization(ffParams);
+          const est = estimateResp?.data || {};
+          this.estimationInfo = {
+            design_space_size: est.design_space_size ?? 0,
+            avg_eval_ms: est.avg_eval_ms ?? 0,
+            estimated_runtime_ms: est.estimated_runtime_ms ?? 0,
+          };
+          this._ffParamsCached = { ...ffParams }; // cache for confirm
+          this.showEstimationModal = true;
+          return; // wait for modal action
+        } catch (e) {
+          this.loading = false;
+          this.isEstimating = false;
+          this.errorMessage = e.response?.data?.error || e.response?.data?.message || 'Failed to estimate or run Full-Factorial.';
+          return;
+        }
+      }
+      
       try {
+        // CRITICAL: Set lastAlgorithm BEFORE running optimization so polling uses correct algorithm
+        // This must happen for BOTH GA and Full-Factorial
+        try {
+          if (typeof window !== 'undefined') {
+            // Use the explicitly selected algorithm (should be 'Genetic Algorithm' or 'Full-Factorial')
+            const algorithm = selectedAlgorithm; // Use the variable we set earlier
+            window.__lastAlgorithm = algorithm;
+            if (window.localStorage) {
+              window.localStorage.setItem('lastAlgorithm', algorithm);
+            }
+            console.log('✅ ProblemFormulation: Set lastAlgorithm to:', algorithm, 'before running optimization');
+            console.log('✅ ProblemFormulation: selectedAlgorithm is:', this.selectedAlgorithm);
+            console.log('✅ ProblemFormulation: payload.algorithm is:', payload.algorithm);
+            
+            // Verify algorithm is correctly set
+            if (algorithm !== 'Genetic Algorithm' && algorithm !== 'Full-Factorial') {
+              console.warn('⚠️ WARNING: Algorithm is not Genetic Algorithm or Full-Factorial:', algorithm);
+            }
+          }
+        } catch (e) {
+          console.error('Error setting lastAlgorithm:', e);
+        }
+        
+        console.log('✅ ProblemFormulation: About to call runOptimization with algorithm:', payload.algorithm);
         const response = await runOptimization(payload);
         console.log('ProblemFormulation: Raw response:', response);
         console.log('ProblemFormulation: Response type:', typeof response);
@@ -535,12 +665,37 @@ export default {
         
         this.loading = false;
         this.hasOptimizationData = true; // Set data availability
-        this.currentRunId = response.data.run_directory; // Store the run ID for polling
+        
+        // CRITICAL: Use run_id from database (not run_directory) for status polling
+        // run_id is the database identifier (e.g., "run_20251103_005130_abc12345")
+        // run_directory is the filesystem directory (e.g., "myrun_2025Nov03_005130")
+        const databaseRunId = response.data.run_id;
+        const runDirectory = response.data.run_directory;
+        
+        // Store run_directory for plot polling, but use run_id for status checking
+        this.currentRunId = runDirectory;
         
         console.log('ProblemFormulation: Optimization successful');
         console.log('ProblemFormulation: Response data:', response.data);
-        console.log('ProblemFormulation: Run directory:', response.data.run_directory);
-        console.log('ProblemFormulation: Current run ID set to:', this.currentRunId);
+        console.log('ProblemFormulation: Database run_id:', databaseRunId);
+        console.log('ProblemFormulation: Run directory:', runDirectory);
+        console.log('ProblemFormulation: Using database run_id for status polling');
+        
+        // For Full-Factorial, start polling status in both online and offline modes
+        // Use database run_id for status polling (not run_directory)
+        if (this.selectedAlgorithm === 'Full-Factorial') {
+          // Always poll for Full-Factorial runs (both online and offline can be async)
+          if (databaseRunId) {
+            this.startStatusPolling(databaseRunId);
+          } else {
+            console.warn('⚠️ No database run_id provided, using run_directory:', runDirectory);
+            this.startStatusPolling(runDirectory);
+          }
+        } else if (this.selectedAlgorithm === 'Genetic Algorithm') {
+          // GA runs complete synchronously, but check status after a delay
+          const runIdToCheck = databaseRunId || runDirectory;
+          setTimeout(() => this.checkRunStatus(runIdToCheck), 2000);
+        }
         
         // Emit event for parent/plot update if needed
         this.$emit('optimization-success', response.data);
@@ -549,6 +704,111 @@ export default {
       } catch (error) {
         this.loading = false;
         this.errorMessage = error.response?.data?.error || 'Failed to run optimization.';
+      }
+    },
+    formatNumber(val) {
+      if (val === null || val === undefined) return 'n/a';
+      const num = Number(val);
+      if (Number.isNaN(num)) return String(val);
+      return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    },
+    formatDuration(ms) {
+      if (ms == null || isNaN(ms)) return 'n/a';
+      if (ms < 1000) {
+        return `${Math.round(ms)} ms`;
+      }
+      let seconds = Math.floor(ms / 1000);
+      const hours = Math.floor(seconds / 3600);
+      seconds = seconds % 3600;
+      const minutes = Math.floor(seconds / 60);
+      seconds = seconds % 60;
+      const pad = n => n.toString().padStart(2, '0');
+      if (hours > 0) {
+        return `${hours}h ${pad(minutes)}m ${pad(seconds)}s`;
+      } else if (minutes > 0) {
+        return `${minutes}m ${pad(seconds)}s`;
+      } else {
+        return `${seconds}s`;
+      }
+    },
+    cancelFullFactorialRun() {
+      this.showEstimationModal = false;
+      this._ffParamsCached = null;
+      this.isEstimating = false;
+      this.loading = false;
+    },
+    async confirmFullFactorialRun() {
+      this.loading = true;            
+      const params = this._ffParamsCached;
+      if (!params) {
+        this.cancelFullFactorialRun();
+        return;
+  }
+      try {
+        this.isEstimating = false;
+        this.showEstimationModal = false;
+        
+        // Ensure algorithm is set in params
+        const runParams = { 
+          ...params, 
+          mode: this.fullFactorialMode,
+          algorithm: params.algorithm || this.selectedAlgorithm || 'Full-Factorial'  // Ensure algorithm is set
+        };
+        delete runParams.estimation_only;
+        
+        console.log('Full-Factorial: runParams.algorithm:', runParams.algorithm);
+        console.log('Full-Factorial: selectedAlgorithm:', this.selectedAlgorithm);
+        console.log('Full-Factorial: _ffParamsCached.algorithm:', params.algorithm);
+        
+        // Hint plot to label points correctly ASAP
+        try {
+          const algorithmToSet = runParams.algorithm || this.selectedAlgorithm || 'Full-Factorial';
+          if (typeof window !== 'undefined') {
+            window.__lastAlgorithm = algorithmToSet;
+            if (window.localStorage) {
+              window.localStorage.setItem('lastAlgorithm', algorithmToSet);
+            }
+            console.log('Full-Factorial: Set lastAlgorithm to:', algorithmToSet);
+          }
+        } catch (e) {
+          console.error('Error setting lastAlgorithm for Full-Factorial:', e);
+        }
+        const runResp = await runOptimization(runParams);
+        this.loading = false;
+        this.hasOptimizationData = true;
+        
+        // CRITICAL: Use run_id from database (not run_directory) for status polling
+        const databaseRunId = runResp.data.run_id;
+        const runDirectory = runResp.data.run_directory;
+        this.currentRunId = runDirectory; // Store for plot polling
+        
+        console.log('Full-Factorial: Database run_id:', databaseRunId);
+        console.log('Full-Factorial: Run directory:', runDirectory);
+        
+        // If running in online mode, keep UI in "Running" state until user stops or completion is detected
+        if (this.fullFactorialMode === 'online') {
+          this.isRunning = true;
+          // Start polling for run status using database run_id
+          if (databaseRunId) {
+            this.startStatusPolling(databaseRunId);
+          } else {
+            console.warn('⚠️ Full-Factorial: No database run_id, using run_directory');
+            this.startStatusPolling(runDirectory);
+          }
+        } else {
+          // Offline mode - also poll status (might complete async)
+          if (databaseRunId) {
+            this.startStatusPolling(databaseRunId);
+          }
+        }
+        
+        this.$emit('optimization-success', runResp.data);
+        this.$emit('run-id-updated', this.currentRunId);
+      } catch (e) {
+        this.loading = false;
+        this.errorMessage = e.response?.data?.error || e.response?.data?.message || 'Failed to run Full-Factorial.';
+      } finally {
+        this._ffParamsCached = null;
       }
     },
     async loadPreviousRun() {
@@ -810,6 +1070,112 @@ export default {
       const date = new Date(timestamp);
       return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
     },
+    async pauseRun() {
+      if (!this.currentRunId) return;
+      try {
+        await axios.post(`/api/runs/${this.currentRunId}/pause/`);
+        // Optionally update state/UI
+        this.loading = false;
+        // Keep isRunning true if paused can be resumed; adjust if needed
+        this.errorMessage = 'Run paused.';
+      } catch (e) {
+        this.errorMessage = e.response?.data?.message || 'Failed to pause run.';
+      }
+    },
+    async stopRun() {
+      if (!this.currentRunId) return;
+      try {
+        await axios.post(`/api/runs/${this.currentRunId}/stop/`);
+        // Optionally update state/UI
+        this.stopStatusPolling();
+        this.loading = false;
+        this.isRunning = false;
+        this.errorMessage = 'Run stopped.';
+      } catch (e) {
+        this.errorMessage = e.response?.data?.message || 'Failed to stop run.';
+      }
+    },
+    async checkRunStatus(runId) {
+      if (!runId) return;
+      
+      // Try database run_id first, then fall back to run_directory
+      let actualRunId = runId;
+      
+      try {
+        // First try with the provided runId (could be run_id or run_directory)
+        let response = await axios.get(`/api/runs/${runId}/`);
+        
+        // If that fails with 404, try to find the run by searching
+        if (response.status === 404 || (response.data && !response.data.run)) {
+          console.log(`⚠️ Run ${runId} not found, trying search...`);
+          try {
+            const searchResponse = await axios.get(`/api/runs/search/?q=${runId}`);
+            if (searchResponse.data && searchResponse.data.runs && searchResponse.data.runs.length > 0) {
+              // Found a match - use the first result's run_id
+              actualRunId = searchResponse.data.runs[0].run_id;
+              console.log(`✅ Found run with directory ${runId}, using database run_id: ${actualRunId}`);
+              response = await axios.get(`/api/runs/${actualRunId}/`);
+            }
+          } catch (searchError) {
+            console.error('Error searching for run:', searchError);
+          }
+        }
+        
+        if (response.data && response.data.run) {
+          const runStatus = response.data.run.status;
+          console.log(`✅ ProblemFormulation: Run ${actualRunId} status: ${runStatus}`);
+          
+          if (runStatus === 'completed') {
+            this.isRunning = false;
+            this.loading = false;
+            this.stopStatusPolling();
+            console.log('✅ ProblemFormulation: Run completed!');
+            
+            // Update hasOptimizationData to enable buttons
+            this.hasOptimizationData = true;
+          } else if (runStatus === 'failed' || runStatus === 'cancelled') {
+            this.isRunning = false;
+            this.loading = false;
+            this.stopStatusPolling();
+            this.errorMessage = `Run ${runStatus}.`;
+          }
+          // If status is 'running', keep polling
+        }
+      } catch (error) {
+        if (error.response && error.response.status === 404) {
+          console.warn(`⚠️ Run ${runId} not found in database. It may still be processing...`);
+          // Don't stop polling on 404 - run might not be saved yet
+        } else {
+          console.error('Error checking run status:', error);
+        }
+        // Don't stop polling on error - might be transient
+      }
+    },
+    startStatusPolling(runId = null) {
+      // Stop any existing polling
+      this.stopStatusPolling();
+      
+      const idToPoll = runId || this.currentRunId;
+      if (!idToPoll) {
+        console.warn('No run ID available for status polling');
+        return;
+      }
+      
+      console.log(`✅ ProblemFormulation: Starting status polling for run ${idToPoll}`);
+      
+      // Poll immediately, then every 3 seconds
+      this.checkRunStatus(idToPoll);
+      this.statusPollingInterval = setInterval(() => {
+        this.checkRunStatus(idToPoll);
+      }, 3000); // Poll every 3 seconds
+    },
+    stopStatusPolling() {
+      if (this.statusPollingInterval) {
+        clearInterval(this.statusPollingInterval);
+        this.statusPollingInterval = null;
+        console.log('✅ ProblemFormulation: Stopped status polling');
+      }
+    },
 
   },
   mounted() {
@@ -818,11 +1184,15 @@ export default {
   },
   beforeDestroy() {
     document.removeEventListener('click', this.handleClickOutside);
+    this.stopStatusPolling(); // Clean up polling on component destroy
   },
   watch: {
     currentView(newView) {
       // Emit view change event to parent component
       this.$emit('view-changed', newView);
+    },
+    fullFactorialMode(newVal) {
+      // Mode changed - no action needed
     }
   }
 };
@@ -1083,6 +1453,44 @@ export default {
 }
 .generate-report-btn {
   min-width: 140px;
+}
+
+/* Estimation Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal-content {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 2px 12px rgba(44, 62, 80, 0.2);
+  width: 100%;
+  max-width: 520px;
+  padding: 1.25rem 1.25rem 1rem 1.25rem;
+}
+.modal-title {
+  margin: 0 0 0.75rem 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: #2c3e50;
+}
+.modal-body {
+  color: #374151;
+  font-size: 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.modal-actions {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
 }
 .form-actions {
   display: flex;
