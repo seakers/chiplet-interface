@@ -14,7 +14,7 @@
               @report-generated="handleReportGenerated"
               @run-id-updated="handleRunIdUpdated"
               @view-changed="handleViewChanged"
-              
+              @model-selected="handleModelSelected"
             />
           </div>
           
@@ -39,6 +39,7 @@
               :isComparative="isComparative" 
               :currentRunId="currentRunId" 
               :customPoints="customPoints"
+              :model="selectedModel"
               @point-selected="handlePointSelected" 
               @point-hovered="handlePointHovered" 
             />
@@ -127,6 +128,8 @@
               :hoveredPoint="hoveredPoint"
               :selectedPoint="selectedPoint"
               :customPoint="customPoint"
+              :selectedXAxis="getSelectedAxes().x"
+              :selectedYAxis="getSelectedAxes().y"
               @evaluate-design="handleEvaluateDesign"
               @point-selected="handlePointSelected"
               @point-hovered="handlePointHovered"
@@ -228,7 +231,8 @@ export default {
         timeMin: null,
         timeMax: null
       },
-      paretoRanks: [1]
+      paretoRanks: [1],
+      selectedModel: null  // Track selected model - starts as null until user selects
     };
   },
   computed: {
@@ -283,11 +287,14 @@ export default {
       
       // Only clear custom points if this is actually a new optimization run
       // Check if response contains optimization data (not just chat responses)
+      // Also check for Pistil GA responses which have pistil_run_id
       const isOptimizationRun = response && (
         response.data || 
         response.plot_data || 
         response.run_a_results || 
         response.run_b_results ||
+        response.pistil_run_id ||  // Pistil GA response
+        response.run_directory ||  // CASCADE run response
         (response.status === 'success' && (response.data || response.plot_data))
       );
       
@@ -316,16 +323,58 @@ export default {
             console.log('Clearing custom points for new optimization run');
         }
         
-        // Set current run ID for polling
-        if (response.run_directory && !this.currentRunId) {
-          this.currentRunId = response.run_directory;
-          console.log('Set current run ID for polling:', this.currentRunId);
+        // Set current run ID for polling (handle both CASCADE and PISTIL)
+        const runId = response.run_directory || response.pistil_run_id;
+        
+        // Update selectedModel if we can detect it from the response
+        if (response.pistil_run_id && !this.selectedModel) {
+          this.selectedModel = 'PISTIL';
+          console.log('[App.vue] Detected PISTIL from response, setting selectedModel');
+        } else if (response.run_directory && !response.pistil_run_id && !this.selectedModel) {
+          this.selectedModel = 'CASCADE';
+          console.log('[App.vue] Detected CASCADE from response, setting selectedModel');
         }
         
-        // Fallback: if run ID is not set but available in response, set it
-        if (!this.currentRunId && response.run_directory) {
-          console.log('Fallback: Setting run ID from response:', response.run_directory);
-          this.currentRunId = response.run_directory;
+        // If this is a new run (different from current), clear old points
+        // Only do this for CASCADE - Pistil has its own handling in Plot.vue
+        const isPistilRun = runId && runId.startsWith('pistil_run_');
+        const currentModel = this.selectedModel || this.getSelectedModel();
+        
+        if (runId && runId !== this.currentRunId && currentModel === 'CASCADE') {
+          console.log('[CASCADE] New run detected. Previous:', this.currentRunId, 'New:', runId);
+          // Clear optimization points when starting a new CASCADE run
+          if (this.$refs.Plot && this.$refs.Plot.allPoints) {
+            const customPointsToKeep = this.$refs.Plot.allPoints.filter(pt => 
+              pt.type === 'custom' || pt.type === 'modified' || 
+              pt.source === 'Manual' || pt.label === 'Custom Design' || 
+              pt.label === 'Modified Design' || pt.algorithm === 'Custom Design'
+            );
+            this.$refs.Plot.allPoints = customPointsToKeep;
+            console.log('[CASCADE] Cleared old optimization points for new run. Kept', customPointsToKeep.length, 'custom points');
+            if (this.$refs.Plot.updateChart) {
+              this.$refs.Plot.updateChart();
+            }
+          }
+        } else if (isPistilRun && currentModel === 'PISTIL') {
+          console.log('[PISTIL] New Pistil run detected. Previous:', this.currentRunId, 'New:', runId);
+          // For Pistil, clear old Pistil points but keep custom points
+          if (this.$refs.Plot && this.$refs.Plot.allPoints) {
+            const customPointsToKeep = this.$refs.Plot.allPoints.filter(pt => 
+              pt.type === 'custom' || pt.type === 'modified' || 
+              pt.source === 'Manual' || pt.label === 'Custom Design' ||
+              pt.model !== 'PISTIL'  // Keep non-Pistil points (custom points)
+            );
+            this.$refs.Plot.allPoints = customPointsToKeep;
+            console.log('[PISTIL] Cleared old Pistil points for new run. Kept', customPointsToKeep.length, 'custom points');
+            if (this.$refs.Plot.updateChart) {
+              this.$refs.Plot.updateChart();
+            }
+          }
+        }
+        
+        if (runId) {
+          this.currentRunId = runId;
+          console.log('Set current run ID for polling:', this.currentRunId);
         }
         
         // Update plot data
@@ -347,9 +396,25 @@ export default {
             }
           } else {
             // Normal behavior for new runs
-            if (response.plot_data) {
+            // For Pistil GA, response.data might be empty initially (GA running in background)
+            if (response.pistil_run_id) {
+              console.log('Pistil GA started. Run ID:', response.pistil_run_id);
+              console.log('Points will populate as simulations complete. Polling every 3 seconds...');
+              // Clear plot and show empty state - points will come via polling
+              if (this.$refs.Plot && this.$refs.Plot.allPoints) {
+                // Keep only custom points
+                const customPointsToKeep = this.$refs.Plot.allPoints.filter(pt => 
+                  pt.type === 'custom' || pt.type === 'modified' || 
+                  pt.source === 'Manual' || pt.label === 'Custom Design'
+                );
+                this.$refs.Plot.allPoints = customPointsToKeep;
+                if (this.$refs.Plot.updateChart) {
+                  this.$refs.Plot.updateChart();
+                }
+              }
+            } else if (response.plot_data) {
               this.$refs.Plot.updateChartData(response.plot_data);
-            } else if (response.data) {
+            } else if (response.data && response.data.length > 0) {
               this.$refs.Plot.updateChartData(response.data);
             }
           }
@@ -614,6 +679,45 @@ export default {
       // Set comparative analysis active state based on view
       this.isComparativeAnalysisActive = view === 'comparative';
       console.log('App.vue: Comparative analysis active:', this.isComparativeAnalysisActive);
+    },
+    handleModelSelected(model) {
+      console.log(`[App.vue] Model selected: ${model}`);
+      // Update selectedModel which will trigger Plot's watcher to start polling
+      this.selectedModel = model;
+      console.log(`[App.vue] Updated selectedModel to ${model}. Plot will start polling.`);
+    },
+    getSelectedModel() {
+      // Return the reactive selectedModel property
+      // This is updated when user selects a model via handleModelSelected
+      if (this.selectedModel) {
+        return this.selectedModel;
+      }
+      // Fallback: try to detect from currentRunId if we have one
+      if (this.currentRunId && this.currentRunId.startsWith('pistil_run_')) {
+        return 'PISTIL';
+      }
+      if (this.currentRunId && !this.currentRunId.startsWith('pistil_run_') && this.currentRunId.startsWith('restarted_run_')) {
+        return 'CASCADE';
+      }
+      return null;  // No model selected yet - don't start polling
+    },
+    getSelectedAxes() {
+      // Get selected axes from Plot component
+      // Note: Plot uses <script setup> so we need to access via exposed properties
+      // For now, try to access the refs directly - if Plot exposes them
+      if (this.$refs.Plot) {
+        // Try accessing the refs (Plot uses script setup, so these might not be directly accessible)
+        // We'll need to expose them from Plot or use a different approach
+        const plotRef = this.$refs.Plot;
+        // Since Plot uses script setup, we can't directly access refs
+        // Instead, we'll use a computed property that watches the Plot's internal state
+        // For now, return defaults - we'll need to expose these from Plot component
+        return {
+          x: plotRef?.selectedXAxis || 'Total time (ms)',
+          y: plotRef?.selectedYAxis || 'Total Energy (mJ)'
+        };
+      }
+      return { x: 'Total time (ms)', y: 'Total Energy (mJ)' };
     },
     handlePointSelected(point) {
       console.log('App.vue: handlePointSelected called with:', point);

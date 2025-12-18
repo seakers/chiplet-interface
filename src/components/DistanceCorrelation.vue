@@ -66,6 +66,9 @@ export default {
           params.file_path = this.filePath;
           console.log('DistanceCorrelation: Fetching data with file path:', this.filePath);
         }
+
+        // Use CASCADE model for distance correlation (current analysis is Cascade-specific)
+        params.model = 'CASCADE';
         
         const response = await axios.get(url, { params });
         this.plotData = response.data.data;

@@ -142,121 +142,234 @@
       </div>
 
       <!-- Show single design info when only one state is active -->
-      <div v-else class="three-column-layout">
-        <!-- Column 1: Design Information -->
-        <div class="design-info-column">
-          <h4>Design Information</h4>
-          <div class="performance-metrics">
-            <div class="info-item">
-              <span class="info-label">Execution Time:</span>
-              <span class="info-value">{{ formatValue(currentPoint.x) }} ms</span>
+      <div v-else :class="isPistilPoint ? 'two-column-layout' : 'three-column-layout'">
+        <!-- PISTIL Design View -->
+        <template v-if="isPistilPoint">
+          <!-- Column 1: Design Decisions (Pistil Parameters) -->
+          <div class="design-info-column">
+            <h4>Design Decisions</h4>
+            <div class="design-parameters-list">
+              <div class="parameter-item" v-if="currentPoint.num_cus !== undefined">
+                <span class="parameter-label">Number of CUs:</span>
+                <span class="parameter-value">{{ formatValue(currentPoint.num_cus) }}</span>
+              </div>
+              <div class="parameter-item" v-if="currentPoint.num_tmacs !== undefined">
+                <span class="parameter-label">Number of TMACs:</span>
+                <span class="parameter-value">{{ formatValue(currentPoint.num_tmacs) }}</span>
+              </div>
+              <div class="parameter-item" v-if="currentPoint.mem_buf_cap !== undefined">
+                <span class="parameter-label">Memory Buffer Capacity:</span>
+                <span class="parameter-value">{{ formatValue(currentPoint.mem_buf_cap) }} GB</span>
+              </div>
+              <div class="parameter-item" v-if="currentPoint.net_buf_cap !== undefined">
+                <span class="parameter-label">Network Buffer Capacity:</span>
+                <span class="parameter-value">{{ formatValue(currentPoint.net_buf_cap) }} GB</span>
+              </div>
+              <div class="parameter-item" v-if="currentPoint.mem_banks_per_group !== undefined">
+                <span class="parameter-label">Memory Banks per Group:</span>
+                <span class="parameter-value">{{ formatValue(currentPoint.mem_banks_per_group) }}</span>
+              </div>
+              <div class="parameter-item" v-if="currentPoint.mem_ranks !== undefined">
+                <span class="parameter-label">Memory Ranks:</span>
+                <span class="parameter-value">{{ formatValue(currentPoint.mem_ranks) }}</span>
+              </div>
+              <div class="parameter-item" v-if="currentPoint.mem_frac_bank_cap !== undefined">
+                <span class="parameter-label">Memory Fractional Bank Capacity:</span>
+                <span class="parameter-value">{{ formatValue(currentPoint.mem_frac_bank_cap) }}</span>
+              </div>
+              <div class="parameter-item" v-if="currentPoint.batch_size !== undefined">
+                <span class="parameter-label">Batch Size:</span>
+                <span class="parameter-value">{{ formatValue(currentPoint.batch_size) }}</span>
+              </div>
+              <div class="parameter-item" v-if="currentPoint.kv_cache !== undefined">
+                <span class="parameter-label">KV Cache:</span>
+                <span class="parameter-value">{{ formatValue(currentPoint.kv_cache) }}</span>
+              </div>
             </div>
-            <div class="info-item">
-              <span class="info-label">Energy:</span>
-              <span class="info-value">{{ formatValue(currentPoint.y) }} mJ</span>
-            </div>
-            <!-- Add more objectives here if needed -->
           </div>
-        </div>
 
-        <!-- Column 2: Chiplet Counts -->
-        <div class="chiplet-counts-column">
-          <h4>Chiplet Counts</h4>
-          <div class="chiplet-counts">
-            <div class="chiplet-count-item">
-              <span class="chiplet-count-label">GPU:</span>
-              <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.gpu || 0 }}</span>
-              <input 
-                v-else
-                v-model.number="editableValues.gpu" 
-                type="number" 
-                min="0" 
-                max="12" 
-                class="chiplet-count-input"
-                @input="validateTotalChiplets"
-              />
-            </div>
-            <div class="chiplet-count-item">
-              <span class="chiplet-count-label">Attention:</span>
-              <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.attn || 0 }}</span>
-              <input 
-                v-else
-                v-model.number="editableValues.attn" 
-                type="number" 
-                min="0" 
-                max="12" 
-                class="chiplet-count-input"
-                @input="validateTotalChiplets"
-              />
-            </div>
-            <div class="chiplet-count-item">
-              <span class="chiplet-count-label">Sparse:</span>
-              <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.sparse || 0 }}</span>
-              <input 
-                v-else
-                v-model.number="editableValues.sparse" 
-                type="number" 
-                min="0" 
-                max="12" 
-                class="chiplet-count-input"
-                @input="validateTotalChiplets"
-              />
-            </div>
-            <div class="chiplet-count-item">
-              <span class="chiplet-count-label">Convolution:</span>
-              <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.conv || 0 }}</span>
-              <input 
-                v-else
-                v-model.number="editableValues.conv" 
-                type="number" 
-                min="0" 
-                max="12" 
-                class="chiplet-count-input"
-                @input="validateTotalChiplets"
-              />
-            </div>
-            <div v-if="isSelected" class="chiplet-count-item total-chiplets">
-              <span class="chiplet-count-label">Total:</span>
-              <span class="chiplet-count-value" :class="{ 
-                'error': totalChiplets > 12 || totalChiplets < 12,
-                'warning': totalChiplets < 12 && totalChiplets > 0
-              }">
-                {{ totalChiplets }}/12
-              </span>
+          <!-- Column 2: Objective Values (All Pistil Objectives) - 2 columns layout -->
+          <div class="chiplet-counts-column">
+            <h4>Objective Values</h4>
+            <div class="objective-values-list">
+              <div class="objective-item" v-if="currentPoint.latency_per_token_ms !== undefined">
+                <span class="objective-label">Latency per Token:</span>
+                <span class="objective-value">{{ formatValue(currentPoint.latency_per_token_ms) }} ms</span>
+              </div>
+              <div class="objective-item" v-if="currentPoint.energy_per_inference_mJ !== undefined">
+                <span class="objective-label">Energy per Inference:</span>
+                <span class="objective-value">{{ formatValue(currentPoint.energy_per_inference_mJ) }} mJ</span>
+              </div>
+              <div class="objective-item" v-if="currentPoint.energy_per_token_mJ !== undefined">
+                <span class="objective-label">Energy per Token:</span>
+                <span class="objective-value">{{ formatValue(currentPoint.energy_per_token_mJ) }} mJ</span>
+              </div>
+              <div class="objective-item" v-if="currentPoint.average_power_W !== undefined">
+                <span class="objective-label">Average Power:</span>
+                <span class="objective-value">{{ formatValue(currentPoint.average_power_W) }} W</span>
+              </div>
+              <div class="objective-item" v-if="currentPoint.system_power_W !== undefined">
+                <span class="objective-label">System Power:</span>
+                <span class="objective-value">{{ formatValue(currentPoint.system_power_W) }} W</span>
+              </div>
+              <div class="objective-item" v-if="currentPoint.system_cost !== undefined">
+                <span class="objective-label">System Cost:</span>
+                <span class="objective-value">${{ formatValue(currentPoint.system_cost) }}</span>
+              </div>
+              <div class="objective-item" v-if="currentPoint.avg_comp_util !== undefined">
+                <span class="objective-label">Avg Compute Util:</span>
+                <span class="objective-value">{{ formatValue(currentPoint.avg_comp_util) }}%</span>
+              </div>
+              <div class="objective-item" v-if="currentPoint.avg_mem_util !== undefined">
+                <span class="objective-label">Avg Memory Util:</span>
+                <span class="objective-value">{{ formatValue(currentPoint.avg_mem_util) }}%</span>
+              </div>
+              <div class="objective-item" v-if="currentPoint.prefill_tokens_per_sec !== undefined">
+                <span class="objective-label">Prefill Tokens/sec:</span>
+                <span class="objective-value">{{ formatValue(currentPoint.prefill_tokens_per_sec) }}</span>
+              </div>
+              <div class="objective-item" v-if="currentPoint.system_compute_TOPS !== undefined">
+                <span class="objective-label">System Compute:</span>
+                <span class="objective-value">{{ formatValue(currentPoint.system_compute_TOPS) }} TOPS</span>
+              </div>
+              <div class="objective-item" v-if="currentPoint.system_bandwidth_TBps !== undefined">
+                <span class="objective-label">System Bandwidth:</span>
+                <span class="objective-value">{{ formatValue(currentPoint.system_bandwidth_TBps) }} TB/s</span>
+              </div>
+              <div class="objective-item" v-if="currentPoint.system_capacity_GB !== undefined">
+                <span class="objective-label">System Capacity:</span>
+                <span class="objective-value">{{ formatValue(currentPoint.system_capacity_GB) }} GB</span>
+              </div>
+              <!-- Also show x and y (currently selected axes) with actual objective names -->
+              <div class="objective-item" style="background: #e6f3ff; border: 2px solid #4a90e2;">
+                <span class="objective-label"><strong>X-axis: {{ selectedXAxis || 'Latency per Token (ms)' }}</strong></span>
+                <span class="objective-value"><strong>{{ formatValue(currentPoint.x) }}</strong></span>
+              </div>
+              <div class="objective-item" style="background: #e6f3ff; border: 2px solid #4a90e2;">
+                <span class="objective-label"><strong>Y-axis: {{ selectedYAxis || 'Energy per Inference (mJ)' }}</strong></span>
+                <span class="objective-value"><strong>{{ formatValue(currentPoint.y) }}</strong></span>
+              </div>
             </div>
           </div>
-        </div>
+        </template>
 
-        <!-- Column 3: Chiplet Layout -->
-        <div class="chiplet-layout-column">
-          <h4>Chiplet Layout</h4>
-          <div class="chiplet-grid">
-            <!-- GPU Chiplets -->
-            <div v-for="i in (displayValues.gpu || 0)" :key="`gpu-${i}`" class="chiplet gpu">
-              <span class="chiplet-label">GPU</span>
-            </div>
-            
-            <!-- Attention Chiplets -->
-            <div v-for="i in (displayValues.attn || 0)" :key="`attn-${i}`" class="chiplet attention">
-              <span class="chiplet-label">ATTN</span>
-            </div>
-            
-            <!-- Sparse Chiplets -->
-            <div v-for="i in (displayValues.sparse || 0)" :key="`sparse-${i}`" class="chiplet sparse">
-              <span class="chiplet-label">SPARSE</span>
-            </div>
-            
-            <!-- Convolution Chiplets -->
-            <div v-for="i in (displayValues.conv || 0)" :key="`conv-${i}`" class="chiplet convolution">
-              <span class="chiplet-label">CONV</span>
-            </div>
-            
-            <!-- Empty slots -->
-            <div v-for="i in emptySlots" :key="`empty-${i}`" class="chiplet empty">
-              <span class="chiplet-label">EMPTY</span>
+        <!-- CASCADE Design View (Original) -->
+        <template v-else>
+          <!-- Column 1: Design Information -->
+          <div class="design-info-column">
+            <h4>Design Information</h4>
+            <div class="performance-metrics">
+              <div class="info-item">
+                <span class="info-label">Execution Time:</span>
+                <span class="info-value">{{ formatValue(currentPoint.x) }} ms</span>
+              </div>
+              <div class="info-item">
+                <span class="info-label">Energy:</span>
+                <span class="info-value">{{ formatValue(currentPoint.y) }} mJ</span>
+              </div>
+              <!-- Add more objectives here if needed -->
             </div>
           </div>
-        </div>
+
+          <!-- Column 2: Chiplet Counts -->
+          <div class="chiplet-counts-column">
+            <h4>Chiplet Counts</h4>
+            <div class="chiplet-counts">
+              <div class="chiplet-count-item">
+                <span class="chiplet-count-label">GPU:</span>
+                <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.gpu || 0 }}</span>
+                <input 
+                  v-else
+                  v-model.number="editableValues.gpu" 
+                  type="number" 
+                  min="0" 
+                  max="12" 
+                  class="chiplet-count-input"
+                  @input="validateTotalChiplets"
+                />
+              </div>
+              <div class="chiplet-count-item">
+                <span class="chiplet-count-label">Attention:</span>
+                <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.attn || 0 }}</span>
+                <input 
+                  v-else
+                  v-model.number="editableValues.attn" 
+                  type="number" 
+                  min="0" 
+                  max="12" 
+                  class="chiplet-count-input"
+                  @input="validateTotalChiplets"
+                />
+              </div>
+              <div class="chiplet-count-item">
+                <span class="chiplet-count-label">Sparse:</span>
+                <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.sparse || 0 }}</span>
+                <input 
+                  v-else
+                  v-model.number="editableValues.sparse" 
+                  type="number" 
+                  min="0" 
+                  max="12" 
+                  class="chiplet-count-input"
+                  @input="validateTotalChiplets"
+                />
+              </div>
+              <div class="chiplet-count-item">
+                <span class="chiplet-count-label">Convolution:</span>
+                <span v-if="!isSelected" class="chiplet-count-value">{{ currentPoint.conv || 0 }}</span>
+                <input 
+                  v-else
+                  v-model.number="editableValues.conv" 
+                  type="number" 
+                  min="0" 
+                  max="12" 
+                  class="chiplet-count-input"
+                  @input="validateTotalChiplets"
+                />
+              </div>
+              <div v-if="isSelected" class="chiplet-count-item total-chiplets">
+                <span class="chiplet-count-label">Total:</span>
+                <span class="chiplet-count-value" :class="{ 
+                  'error': totalChiplets > 12 || totalChiplets < 12,
+                  'warning': totalChiplets < 12 && totalChiplets > 0
+                }">
+                  {{ totalChiplets }}/12
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Column 3: Chiplet Layout -->
+          <div class="chiplet-layout-column">
+            <h4>Chiplet Layout</h4>
+            <div class="chiplet-grid">
+              <!-- GPU Chiplets -->
+              <div v-for="i in (displayValues.gpu || 0)" :key="`gpu-${i}`" class="chiplet gpu">
+                <span class="chiplet-label">GPU</span>
+              </div>
+              
+              <!-- Attention Chiplets -->
+              <div v-for="i in (displayValues.attn || 0)" :key="`attn-${i}`" class="chiplet attention">
+                <span class="chiplet-label">ATTN</span>
+              </div>
+              
+              <!-- Sparse Chiplets -->
+              <div v-for="i in (displayValues.sparse || 0)" :key="`sparse-${i}`" class="chiplet sparse">
+                <span class="chiplet-label">SPARSE</span>
+              </div>
+              
+              <!-- Convolution Chiplets -->
+              <div v-for="i in (displayValues.conv || 0)" :key="`conv-${i}`" class="chiplet convolution">
+                <span class="chiplet-label">CONV</span>
+              </div>
+              
+              <!-- Empty slots -->
+              <div v-for="i in emptySlots" :key="`empty-${i}`" class="chiplet empty">
+                <span class="chiplet-label">EMPTY</span>
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- Actions Section (only for selected designs) -->
@@ -299,6 +412,14 @@ export default {
     customPoint: {
       type: Object,
       default: null
+    },
+    selectedXAxis: {
+      type: String,
+      default: ''
+    },
+    selectedYAxis: {
+      type: String,
+      default: ''
     }
   },
   emits: ['evaluate-design'],
@@ -327,6 +448,9 @@ export default {
     },
     isHovered() {
       return this.hoveredPoint !== null && this.hoveredPoint !== this.selectedPoint;
+    },
+    isPistilPoint() {
+      return this.currentPoint && this.currentPoint.model === 'PISTIL';
     },
     showBothStates() {
       return this.selectedPoint !== null && this.hoveredPoint !== null && this.hoveredPoint !== this.selectedPoint;
@@ -520,6 +644,15 @@ export default {
   min-height: 300px;
 }
 
+.two-column-layout {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0;
+  align-items: stretch;
+  width: 100%;
+  min-height: 300px;
+}
+
 /* Column 1: Design Information */
 .design-info-column {
   display: flex;
@@ -568,6 +701,63 @@ export default {
   flex-shrink: 0;
 }
 
+/* Pistil-specific styles */
+.design-parameters-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.objective-values-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+}
+
+.parameter-item,
+.objective-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  background: #fff;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+}
+
+.parameter-label,
+.objective-label {
+  font-size: 0.9rem;
+  color: #4a5568;
+  font-weight: 500;
+  flex: 1;
+}
+
+.parameter-value,
+.objective-value {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #2d3748;
+  text-align: right;
+  flex: 1;
+}
+
+.design-summary {
+  padding: 1rem;
+  text-align: center;
+}
+
+.design-summary p {
+  margin: 0.5rem 0;
+  color: #4a5568;
+}
+
+.summary-text {
+  font-size: 0.85rem;
+  color: #718096;
+  font-style: italic;
+}
+
 /* Column 2: Chiplet Counts */
 .chiplet-counts-column {
   display: flex;
@@ -576,6 +766,11 @@ export default {
   padding: 1.5rem;
   border-right: 1px solid #e2e8f0;
   background: #f8fafc;
+}
+
+.two-column-layout .chiplet-counts-column {
+  border-right: none;
+  border-radius: 0 8px 8px 0;
 }
 
 .chiplet-counts-column h4 {
@@ -1019,7 +1214,8 @@ export default {
     gap: 1rem;
   }
   
-  .three-column-layout {
+  .three-column-layout,
+  .two-column-layout {
     grid-template-columns: 1fr;
     gap: 0;
   }
@@ -1036,8 +1232,17 @@ export default {
     border-radius: 0;
   }
   
+  .two-column-layout .chiplet-counts-column {
+    border-bottom: none;
+    border-radius: 0 0 8px 8px;
+  }
+  
   .chiplet-layout-column {
     border-radius: 0 0 8px 8px;
+  }
+  
+  .objective-values-list {
+    grid-template-columns: 1fr;
   }
   
   .chiplet-grid {

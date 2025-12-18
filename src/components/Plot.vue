@@ -36,12 +36,87 @@ const props = defineProps({
   customPoints: {
     type: Array,
     default: () => []
+  },
+  model: {
+    type: String,
+    default: null  // No default - wait for explicit model selection
   }
 });
 
-const availableAxes = ref(["Total time (ms)", "Total Energy (mJ)", "Temperature (K)", "Latency (μs)"]);
+// Default axes for CASCADE
+const cascadeAxes = ["Total time (ms)", "Total Energy (mJ)", "Temperature (K)", "Latency (μs)"];
+// Pistil-specific axes
+const pistilAxes = [
+    "Latency per Token (ms)",
+    "Energy per Inference (mJ)",
+    "Energy per Token (mJ)",
+    "Average Power (W)",
+    "System Power (W)",
+    "System Cost ($)",
+    "Avg Compute Util (%)",
+    "Avg Memory Util (%)",
+    "Prefill Tokens/sec",
+    "System Compute (TOPS)",
+    "System Bandwidth (TB/s)",
+    "System Capacity (GB)"
+];
+const availableAxes = ref(cascadeAxes);
 const selectedXAxis = ref("Total time (ms)");
 const selectedYAxis = ref("Total Energy (mJ)");
+
+// Map axis label to data field name
+function getFieldForAxis(axisLabel) {
+    const axisToField = {
+        // CASCADE axes
+        "Total time (ms)": "x",
+        "Total Energy (mJ)": "y",
+        "Temperature (K)": "temperature",
+        "Latency (μs)": "latency",
+        // PISTIL axes
+        "Latency per Token (ms)": "latency_per_token_ms",
+        "Energy per Inference (mJ)": "energy_per_inference_mJ",
+        "Energy per Token (mJ)": "energy_per_token_mJ",
+        "Average Power (W)": "average_power_W",
+        "System Power (W)": "system_power_W",
+        "System Cost ($)": "system_cost",
+        "Avg Compute Util (%)": "avg_comp_util",
+        "Avg Memory Util (%)": "avg_mem_util",
+        "Prefill Tokens/sec": "prefill_tokens_per_sec",
+        "System Compute (TOPS)": "system_compute_TOPS",
+        "System Bandwidth (TB/s)": "system_bandwidth_TBps",
+        "System Capacity (GB)": "system_capacity_GB"
+    };
+    return axisToField[axisLabel] || axisLabel.toLowerCase().replace(/\s+/g, '_');
+}
+
+// Detect model type from data and update axes accordingly
+function updateAxesForModel(points) {
+    if (!points || points.length === 0) return;
+    
+    // Check if any point has model: 'PISTIL'
+    const isPistil = points.some(pt => pt.model === 'PISTIL');
+    
+    if (isPistil) {
+        // Update available axes for Pistil
+        availableAxes.value = pistilAxes;
+        // Update default selections to Pistil objectives
+        if (selectedXAxis.value === "Total time (ms)" || !pistilAxes.includes(selectedXAxis.value)) {
+            selectedXAxis.value = "Latency per Token (ms)";
+        }
+        if (selectedYAxis.value === "Total Energy (mJ)" || !pistilAxes.includes(selectedYAxis.value)) {
+            selectedYAxis.value = "Energy per Inference (mJ)";
+        }
+    } else {
+        // Use CASCADE axes
+        availableAxes.value = cascadeAxes;
+        if (!cascadeAxes.includes(selectedXAxis.value)) {
+            selectedXAxis.value = "Total time (ms)";
+        }
+        if (!cascadeAxes.includes(selectedYAxis.value)) {
+            selectedYAxis.value = "Total Energy (mJ)";
+        }
+    }
+}
 
 const popupX = ref(0);
 const popupY = ref(0);
@@ -354,27 +429,70 @@ const fetchChartData = async (runId = null) => {
         console.log('Plot fetchChartData - currentRunId:', props.currentRunId);
         console.log('Plot fetchChartData - hasLoadedRunData:', hasLoadedRunData.value);
         
-        if (hasLoadedRunData.value && props.currentRunId && props.currentRunId.startsWith('loaded_run_')) {
-            const tempFilePath = `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${props.currentRunId}.csv`;
-            params.file_path = tempFilePath;
-            console.log('Polling with loaded run file path:', tempFilePath);
-        } else if (props.currentRunId && props.currentRunId.startsWith('restarted_run_')) {
-            // For restarted runs, poll the main points.csv (which will have new GA points)
-            const restartedPath = `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/${props.currentRunId}/points.csv`;
-            params.file_path = restartedPath;
-            console.log('Polling with restarted run file path:', restartedPath);
-        } else {
-            console.log('Using default polling (no specific run ID detected)');
+        // Determine model first to avoid Cascade-specific logic when Pistil is selected
+        const currentModel = props.model || (props.currentRunId && props.currentRunId.startsWith('pistil_run_') ? 'PISTIL' : 'CASCADE');
+        
+        // Only handle Cascade-specific run types if model is CASCADE
+        if (currentModel === 'CASCADE') {
+            if (hasLoadedRunData.value && props.currentRunId && props.currentRunId.startsWith('loaded_run_')) {
+                const tempFilePath = `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${props.currentRunId}.csv`;
+                params.file_path = tempFilePath;
+                console.log('[CASCADE] Polling with loaded run file path:', tempFilePath);
+            } else if (props.currentRunId && props.currentRunId.startsWith('restarted_run_')) {
+                // For restarted runs, poll the main points.csv (which will have new GA points)
+                const restartedPath = `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/${props.currentRunId}/points.csv`;
+                params.file_path = restartedPath;
+                console.log('[CASCADE] Polling with restarted run file path:', restartedPath);
+            } else {
+                console.log('[CASCADE] Using default polling (no specific run ID detected)');
+            }
+        } else if (currentModel === 'PISTIL') {
+            // For Pistil runs, pass run_id so backend can find the correct directory
+            if (props.currentRunId && props.currentRunId.startsWith('pistil_run_')) {
+                params.run_id = props.currentRunId;
+                params.model = 'PISTIL';
+                console.log('[PISTIL] Polling Pistil run:', props.currentRunId);
+            } else {
+                console.log('[PISTIL] No Pistil run_id detected, will use most recent run');
+                params.model = 'PISTIL';
+            }
         }
+        
+        // CRITICAL: Always pass model parameter to ensure backend routes correctly
+        // Priority: 1) props.model (explicit), 2) detected from currentRunId, 3) detected from existing points, 4) default CASCADE
+        if (!params.model) {
+          if (props.model) {
+            params.model = props.model;
+            console.log('Using model from props:', params.model);
+          } else if (props.currentRunId && props.currentRunId.startsWith('pistil_run_')) {
+            params.model = 'PISTIL';
+            console.log('Detected Pistil from run_id:', props.currentRunId);
+          } else if (allPoints.value.length > 0 && allPoints.value.some(pt => pt.model === 'PISTIL')) {
+            params.model = 'PISTIL';
+            console.log('Detected Pistil from existing points');
+          } else {
+            params.model = 'CASCADE';  // Default fallback
+            console.log('Using default model: CASCADE');
+          }
+        }
+        
         // Pass algorithm and run_id so backend labels points correctly in legend/colors
         if (lastAlgorithm.value) {
           params.algorithm = lastAlgorithm.value;
         }
         
         // Pass run_id if available so backend can look up correct algorithm from database
-        if (props.currentRunId) {
+        if (props.currentRunId && !params.run_id) {
           params.run_id = props.currentRunId;
         }
+        
+        // Final validation: ensure model is set
+        if (!params.model) {
+          console.warn('WARNING: model parameter not set! Defaulting to CASCADE. This may cause incorrect data loading.');
+          params.model = 'CASCADE';
+        }
+        
+        console.log('Plot fetchChartData - Final params:', { model: params.model, run_id: params.run_id, algorithm: params.algorithm });
         
         const response = await axios.get(url, { params });
         const data = response.data.data;
@@ -416,8 +534,29 @@ const fetchChartData = async (runId = null) => {
 };
 
 function buildChartData() {
-  // Filter out any undefined or malformed points
-  const validPoints = allPoints.value.filter(pt => pt && typeof pt === 'object' && pt.x !== undefined && pt.y !== undefined);
+  // Map axis selections to data fields
+  const xField = getFieldForAxis(selectedXAxis.value);
+  const yField = getFieldForAxis(selectedYAxis.value);
+  
+  // Filter out any undefined or malformed points and map to selected axes
+  const validPoints = allPoints.value
+    .filter(pt => pt && typeof pt === 'object')
+    .map(pt => {
+      // Get x and y values from the selected fields, fallback to pt.x/pt.y
+      const xValue = pt[xField] !== undefined ? pt[xField] : pt.x;
+      const yValue = pt[yField] !== undefined ? pt[yField] : pt.y;
+      
+      if (xValue === undefined || yValue === undefined) {
+        return null;
+      }
+      
+      return {
+        ...pt,
+        x: xValue,
+        y: yValue
+      };
+    })
+    .filter(pt => pt !== null);
   
   if (validPoints.length !== allPoints.value.length) {
     console.warn('Filtered out', allPoints.value.length - validPoints.length, 'invalid points');
@@ -851,12 +990,35 @@ const createChart = () => {
                 console.log('All points length:', allPoints.value.length);
                 console.log('First few allPoints:', allPoints.value.slice(0, 3));
                 
-                // Find the global index in allPoints.value
-                const globalIndex = allPoints.value.findIndex(pt => 
-                  pt.x === pointData.x && pt.y === pointData.y &&
-                  pt.gpu === pointData.gpu && pt.attn === pointData.attn &&
-                  pt.sparse === pointData.sparse && pt.conv === pointData.conv
-                );
+                // Find the global index in allPoints.value - support both Cascade and Pistil
+                // Match primarily on model-specific parameters (not x/y, which change with axis selection)
+                const globalIndex = allPoints.value.findIndex(pt => {
+                  // Check model type first
+                  const ptIsPistil = pt.model === 'PISTIL';
+                  const dataIsPistil = pointData.model === 'PISTIL';
+                  
+                  // Model types must match
+                  if (ptIsPistil !== dataIsPistil) return false;
+                  
+                  if (ptIsPistil || dataIsPistil) {
+                    // Pistil points: match on key Pistil parameters (use loose equality for undefined)
+                    return (pt.num_cus == pointData.num_cus) &&
+                           (pt.num_tmacs == pointData.num_tmacs) &&
+                           (pt.mem_buf_cap == pointData.mem_buf_cap) &&
+                           (pt.net_buf_cap == pointData.net_buf_cap) &&
+                           (pt.mem_banks_per_group == pointData.mem_banks_per_group) &&
+                           (pt.mem_ranks == pointData.mem_ranks) &&
+                           (pt.mem_frac_bank_cap == pointData.mem_frac_bank_cap) &&
+                           (pt.batch_size == pointData.batch_size) &&
+                           (pt.kv_cache == pointData.kv_cache);
+                  } else {
+                    // Cascade points: match on Cascade parameters
+                    return (pt.gpu == pointData.gpu) &&
+                           (pt.attn == pointData.attn) &&
+                           (pt.sparse == pointData.sparse) &&
+                           (pt.conv == pointData.conv);
+                  }
+                });
                 
                 console.log('Global index found:', globalIndex);
                 
@@ -907,18 +1069,43 @@ const createChart = () => {
                 const dataset = chartInstance.data.datasets[datasetIndex];
                 const pointData = dataset.data[localIndex];
                 
-                // Find the global index in allPoints.value
-                const globalIndex = allPoints.value.findIndex(pt => 
-                  pt.x === pointData.x && pt.y === pointData.y &&
-                  pt.gpu === pointData.gpu && pt.attn === pointData.attn &&
-                  pt.sparse === pointData.sparse && pt.conv === pointData.conv
-                );
+                // Find the global index in allPoints.value - support both Cascade and Pistil
+                // Match primarily on model-specific parameters (not x/y, which change with axis selection)
+                const globalIndex = allPoints.value.findIndex(pt => {
+                  // Check model type first
+                  const ptIsPistil = pt.model === 'PISTIL';
+                  const dataIsPistil = pointData.model === 'PISTIL';
+                  
+                  // Model types must match
+                  if (ptIsPistil !== dataIsPistil) return false;
+                  
+                  if (ptIsPistil || dataIsPistil) {
+                    // Pistil points: match on key Pistil parameters (use loose equality for undefined)
+                    return (pt.num_cus == pointData.num_cus) &&
+                           (pt.num_tmacs == pointData.num_tmacs) &&
+                           (pt.mem_buf_cap == pointData.mem_buf_cap) &&
+                           (pt.net_buf_cap == pointData.net_buf_cap) &&
+                           (pt.mem_banks_per_group == pointData.mem_banks_per_group) &&
+                           (pt.mem_ranks == pointData.mem_ranks) &&
+                           (pt.mem_frac_bank_cap == pointData.mem_frac_bank_cap) &&
+                           (pt.batch_size == pointData.batch_size) &&
+                           (pt.kv_cache == pointData.kv_cache);
+                  } else {
+                    // Cascade points: match on Cascade parameters
+                    return (pt.gpu == pointData.gpu) &&
+                           (pt.attn == pointData.attn) &&
+                           (pt.sparse == pointData.sparse) &&
+                           (pt.conv == pointData.conv);
+                  }
+                });
                 
                 hoveredPointIndex.value = globalIndex !== -1 ? globalIndex : null;
                 // Emit hovered point data for design visualizer
                 if (globalIndex !== -1) {
                   const pt = allPoints.value[globalIndex];
                   emit('point-hovered', pt);
+                } else {
+                  emit('point-hovered', null);
                 }
               } else {
                 hoveredPointIndex.value = null;
@@ -1074,18 +1261,23 @@ const updateChartData = (newChartData, traceMetadata = null) => {
         window.localStorage.setItem('lastAlgorithm', lastAlgorithm.value);
       }
     }
-    console.log('Normal mode - Processing new points:', newPoints.length);
-    console.log('Sample new point:', newPoints[0]);
+    const currentModel = props.model || (newPoints.length > 0 && newPoints[0]?.model === 'PISTIL' ? 'PISTIL' : 'CASCADE');
+    const modelPrefix = currentModel === 'PISTIL' ? '[PISTIL]' : '[CASCADE]';
+    console.log(`${modelPrefix} Processing new points:`, newPoints.length);
+    if (newPoints.length > 0) {
+      console.log(`${modelPrefix} Sample new point:`, newPoints[0]);
+    }
     
     // Check if this is a loaded run (has loaded_from_backup flag)
     const isLoadedRun = newChartData && newChartData.loaded_from_backup;
     
-    // Special handling for restarted runs - append new points instead of replacing
-    if (props.currentRunId && props.currentRunId.startsWith('restarted_run_')) {
-      console.log('Restarted run mode - appending new points to existing points');
-      console.log('Current allPoints before processing:', allPoints.value.length);
-      console.log('New points from polling:', newPoints.length);
-      console.log('hasSetInitialRestartPoints:', hasSetInitialRestartPoints.value);
+    // Special handling for restarted runs (CASCADE only) - append new points instead of replacing
+    // Skip this for PISTIL - Pistil has its own handling below
+    if (props.model !== 'PISTIL' && props.currentRunId && props.currentRunId.startsWith('restarted_run_')) {
+      console.log('[CASCADE] Restarted run mode - appending new points to existing points');
+      console.log('[CASCADE] Current allPoints before processing:', allPoints.value.length);
+      console.log('[CASCADE] New points from polling:', newPoints.length);
+      console.log('[CASCADE] hasSetInitialRestartPoints:', hasSetInitialRestartPoints.value);
       
       // For restarted runs, NEVER replace allPoints, only append new ones
       if (newPoints.length > 0) {
@@ -1098,39 +1290,152 @@ const updateChartData = (newChartData, traceMetadata = null) => {
         
         if (trulyNewPoints.length > 0) {
           allPoints.value.push(...trulyNewPoints);
-          console.log(`Added ${trulyNewPoints.length} new points to restarted run. Total points:`, allPoints.value.length);
+          console.log(`[CASCADE] Added ${trulyNewPoints.length} new points to restarted run. Total points:`, allPoints.value.length);
         } else {
-          console.log('No truly new points to add (all were duplicates)');
+          console.log('[CASCADE] No truly new points to add (all were duplicates)');
         }
       } else {
-        console.log('No new points from polling, preserving existing points');
+        console.log('[CASCADE] No new points from polling, preserving existing points');
       }
       
       // Always update the chart after processing restarted run data
       updateChart();
       return; // Exit early to prevent normal processing
-    } else {
-      // Regular behavior for non-restarted runs
-      // Only update if we have new data OR if this is not a loaded run
-      // This prevents clearing loaded run data when polling returns empty data
-      if (newPoints.length > 0 || !hasLoadedRunData.value) {
-        allPoints.value = newPoints;
+    } else if (props.currentRunId && props.currentRunId.startsWith('pistil_run_')) {
+      // Special handling for Pistil GA runs - append new points incrementally
+      // First, filter out any old Pistil points from different runs
+      const currentRunPoints = allPoints.value.filter(pt => {
+        // Keep custom points
+        if (pt.type === 'custom' || pt.type === 'modified' || pt.source === 'Manual') {
+          return true;
+        }
+        // For Pistil points, only keep if they match the current run
+        // We can't directly check run_id on points, but we can check if they're from the current model
+        // and assume all Pistil points in allPoints are from the current run after clearing
+        return pt.model !== 'PISTIL' || true; // Keep all Pistil points (they should all be from current run after initial clear)
+      });
+      
+      // If we have new points and no existing Pistil points, this might be the first poll
+      // In that case, replace all points with new ones to ensure we only show current run
+      const hasExistingPistilPoints = currentRunPoints.some(pt => pt.model === 'PISTIL');
+      if (newPoints.length > 0 && !hasExistingPistilPoints) {
+        console.log('First poll for Pistil run - setting initial points');
+        allPoints.value = [...newPoints];
         // Restore custom points
         if (currentCustomPoints.length > 0) {
           allPoints.value.push(...currentCustomPoints);
-          console.log('Restored custom points after normal update. Total points:', allPoints.value.length);
         }
-        console.log('Normal mode - Total points after update:', allPoints.value.length);
+        updateChart();
+        return;
+      }
+      
+      console.log('Pistil GA run mode - appending new points incrementally');
+      console.log('Current allPoints before processing:', allPoints.value.length);
+      console.log('New points from polling:', newPoints.length);
+      
+      if (newPoints.length > 0) {
+        // Find new points that aren't already in allPoints
+        // For Pistil, use a unique key based on design parameters
+        const existingPoints = allPoints.value.map(pt => {
+          if (pt.model === 'PISTIL') {
+            // Use Pistil-specific parameters for uniqueness
+            return `${pt.num_cus || ''},${pt.num_tmacs || ''},${pt.mem_buf_cap || ''},${pt.net_buf_cap || ''},${pt.mem_banks_per_group || ''},${pt.mem_ranks || ''},${pt.mem_frac_bank_cap || ''},${pt.batch_size || ''},${pt.kv_cache || ''}`;
+          } else {
+            // Fallback for non-Pistil points
+            return `${pt.x},${pt.y},${pt.gpu || ''},${pt.attn || ''},${pt.sparse || ''},${pt.conv || ''}`;
+          }
+        });
+        
+        const trulyNewPoints = newPoints.filter(pt => {
+          let pointKey;
+          if (pt.model === 'PISTIL') {
+            pointKey = `${pt.num_cus || ''},${pt.num_tmacs || ''},${pt.mem_buf_cap || ''},${pt.net_buf_cap || ''},${pt.mem_banks_per_group || ''},${pt.mem_ranks || ''},${pt.mem_frac_bank_cap || ''},${pt.batch_size || ''},${pt.kv_cache || ''}`;
+          } else {
+            pointKey = `${pt.x},${pt.y},${pt.gpu || ''},${pt.attn || ''},${pt.sparse || ''},${pt.conv || ''}`;
+          }
+          return !existingPoints.includes(pointKey);
+        });
+        
+        if (trulyNewPoints.length > 0) {
+          allPoints.value.push(...trulyNewPoints);
+          console.log(`Added ${trulyNewPoints.length} new Pistil points. Total points:`, allPoints.value.length);
+          updateChart();
+        } else {
+          console.log('No truly new Pistil points to add (all were duplicates)');
+        }
       } else {
-        console.log('Skipping update for loaded run with empty polling data');
-        console.log('hasLoadedRunData.value:', hasLoadedRunData.value);
-        console.log('newPoints.length:', newPoints.length);
+        console.log('No new Pistil points from polling yet');
+      }
+      
+      // Restore custom points if any
+      if (currentCustomPoints.length > 0) {
+        const customInAllPoints = allPoints.value.some(pt => 
+          currentCustomPoints.some(customPt => 
+            Math.abs(customPt.x - pt.x) < 0.001 &&
+            Math.abs(customPt.y - pt.y) < 0.001
+          )
+        );
+        if (!customInAllPoints) {
+          allPoints.value.push(...currentCustomPoints);
+        }
+      }
+      
+      return; // Exit early to prevent normal processing
+    } else {
+      // Regular behavior for non-restarted, non-Pistil runs (CASCADE only)
+      // Skip this entirely if model is PISTIL
+      if (props.model === 'PISTIL') {
+        console.log('[PISTIL] Skipping CASCADE-specific update logic');
+        return;
+      }
+      
+      // For CASCADE, also append incrementally if it's a GA run
+      const isCascadeGA = !hasLoadedRunData.value && newPoints.length > 0 && 
+                          allPoints.value.length > 0 && 
+                          !props.currentRunId?.startsWith('restarted_run_') &&
+                          !props.currentRunId?.startsWith('pistil_run_');
+      
+      if (isCascadeGA) {
+        // For CASCADE GA runs, also append incrementally
+        console.log('[CASCADE] GA run mode - appending new points incrementally');
+        const existingPoints = allPoints.value.map(pt => `${pt.x},${pt.y},${pt.gpu},${pt.attn},${pt.sparse},${pt.conv}`);
+        const trulyNewPoints = newPoints.filter(pt => {
+          const pointKey = `${pt.x},${pt.y},${pt.gpu},${pt.attn},${pt.sparse},${pt.conv}`;
+          return !existingPoints.includes(pointKey);
+        });
+        
+        if (trulyNewPoints.length > 0) {
+          allPoints.value.push(...trulyNewPoints);
+          console.log(`[CASCADE] Added ${trulyNewPoints.length} new CASCADE points. Total points:`, allPoints.value.length);
+          updateChart();
+        }
+      } else {
+        // Only update if we have new data OR if this is not a loaded run
+        // This prevents clearing loaded run data when polling returns empty data
+        if (newPoints.length > 0 || !hasLoadedRunData.value) {
+          allPoints.value = newPoints;
+          // Restore custom points
+          if (currentCustomPoints.length > 0) {
+            allPoints.value.push(...currentCustomPoints);
+            console.log('[CASCADE] Restored custom points after normal update. Total points:', allPoints.value.length);
+          }
+          console.log('[CASCADE] Normal mode - Total points after update:', allPoints.value.length);
+          updateChart();
+        } else {
+          console.log('[CASCADE] Skipping update for loaded run with empty polling data');
+          console.log('[CASCADE] hasLoadedRunData.value:', hasLoadedRunData.value);
+          console.log('[CASCADE] newPoints.length:', newPoints.length);
+        }
       }
     }
   }
   
   console.log('All points after update:', allPoints.value.length);
   console.log('Sample points after update:', allPoints.value.slice(0, 2));
+  
+  // Update axes based on model type detected in data
+  updateAxesForModel(allPoints.value);
+  
   updateChart();
   console.log('=== updateChartData END ===');
 };
@@ -1395,7 +1700,10 @@ const resetZoom = () => {
   }
 };
 
+// Expose methods and selected axes for parent component access
 defineExpose({
+    selectedXAxis,
+    selectedYAxis,
     updateChartData,
     updateChart,
     getChartData,
@@ -1443,20 +1751,32 @@ let refreshInterval = null;
 let hasOptimizationRun = false; // Track if optimization has been run
 
 function startPolling() {
+  // Only start polling if a model is selected
+  if (!props.model) {
+    console.log('[Plot] Cannot start polling: no model selected');
+    return;
+  }
+  
   if (refreshInterval) clearInterval(refreshInterval);
+  const currentModel = props.model;
+  const modelPrefix = currentModel === 'PISTIL' ? '[PISTIL]' : '[CASCADE]';
+  console.log(`${modelPrefix} Starting polling for ${currentModel} model...`);
+  
   refreshInterval = setInterval(async () => {
-    console.log('Polling for new data...');
+    console.log(`${modelPrefix} Polling for new data...`);
     const newData = await fetchChartData();
-    console.log('Polling returned data:', newData ? newData.length : 'no data');
-    console.log('First few points from polling:', newData ? newData.slice(0, 3) : 'no data');
-    console.log('Current allPoints before update:', allPoints.value.length);
+    console.log(`${modelPrefix} Polling returned data:`, newData ? newData.length : 'no data');
+    if (newData && newData.length > 0) {
+      console.log(`${modelPrefix} First few points from polling:`, newData.slice(0, 3));
+    }
+    console.log(`${modelPrefix} Current allPoints before update:`, allPoints.value.length);
     
     // Only update if we have data (not null)
     if (newData !== null) {
       updateChartData(newData);
-      console.log('Current allPoints after update:', allPoints.value.length);
+      console.log(`${modelPrefix} Current allPoints after update:`, allPoints.value.length);
     } else {
-      console.log('No new data available, preserving existing data');
+      console.log(`${modelPrefix} No new data available, preserving existing data`);
     }
   }, 3000); // Poll every 3 seconds for real-time updates
 }
@@ -1464,17 +1784,33 @@ function startPolling() {
 // Add method to enable polling after optimization
 function enablePolling() {
   hasOptimizationRun = true;
-  console.log('Polling enabled after optimization run');
-  // Restart polling to ensure it's active
-  startPolling();
+  const currentModel = props.model || 'CASCADE';
+  const modelPrefix = currentModel === 'PISTIL' ? '[PISTIL]' : '[CASCADE]';
+  console.log(`${modelPrefix} Polling enabled after optimization run`);
+  // Only start polling if model is selected
+  if (props.model) {
+    startPolling();
+  } else {
+    console.log('[Plot] Cannot enable polling: no model selected');
+  }
 }
+
+// Watch for axis changes and update chart
+watch([selectedXAxis, selectedYAxis], () => {
+  console.log('Axis selection changed - updating chart');
+  if (chartInstance) {
+    updateChart();
+  }
+});
 
 onMounted(() => {
   createChart();
   // Clear any existing data on mount to ensure clean start
   allPoints.value = [];
   updateChart();
-  startPolling();
+  // Don't start polling automatically - wait for model selection
+  // Polling will start when model prop is set (via watcher)
+  console.log('[Plot] Component mounted. Waiting for model selection before starting polling.');
 });
 
 onUnmounted(() => {
@@ -1485,14 +1821,96 @@ onUnmounted(() => {
 });
 
 watch(() => props.isComparative, () => {
-  startPolling();
+  // Only start polling if model is already selected
+  if (props.model) {
+    console.log(`[${props.model}] Comparative mode changed, restarting polling`);
+    startPolling();
+  }
 });
 
-// Watch for currentRunId changes to restart polling
+// Watch for model prop changes to start/restart polling when model is selected
+watch(() => props.model, (newModel, oldModel) => {
+  // Only start polling when a model is explicitly selected
+  // Skip if model is null/undefined (no selection yet)
+  if (!newModel) {
+    console.log('[Plot] No model selected yet, not starting polling');
+    // Stop polling if model is cleared
+    if (refreshInterval) {
+      clearInterval(refreshInterval);
+      refreshInterval = null;
+      console.log('[Plot] Stopped polling (model cleared)');
+    }
+    return;
+  }
+  
+  // Update axes immediately when model is selected (before points arrive)
+  if (newModel === 'PISTIL') {
+    availableAxes.value = pistilAxes;
+    if (selectedXAxis.value === "Total time (ms)" || !pistilAxes.includes(selectedXAxis.value)) {
+      selectedXAxis.value = "Latency per Token (ms)";
+    }
+    if (selectedYAxis.value === "Total Energy (mJ)" || !pistilAxes.includes(selectedYAxis.value)) {
+      selectedYAxis.value = "Energy per Inference (mJ)";
+    }
+    console.log('[Plot] Updated axes for PISTIL model');
+  } else if (newModel === 'CASCADE') {
+    availableAxes.value = cascadeAxes;
+    if (!cascadeAxes.includes(selectedXAxis.value)) {
+      selectedXAxis.value = "Total time (ms)";
+    }
+    if (!cascadeAxes.includes(selectedYAxis.value)) {
+      selectedYAxis.value = "Total Energy (mJ)";
+    }
+    console.log('[Plot] Updated axes for CASCADE model');
+  }
+  
+  // Start polling when model is selected or changes
+  if (newModel !== oldModel) {
+    if (oldModel === null || oldModel === undefined) {
+      // First time model is selected
+      console.log(`[Plot] Model selected: ${newModel}. Starting polling.`);
+    } else {
+      // Model changed
+      console.log(`[Plot] Model changed from ${oldModel} to ${newModel}`);
+    }
+    console.log(`[Plot] Starting polling for ${newModel === 'PISTIL' ? 'Pistil' : 'Cascade'} model`);
+    startPolling();
+  }
+}, { immediate: false }); // Don't run immediately on mount
+
+// Watch for currentRunId changes to restart polling and clear old points
 watch(() => props.currentRunId, (newRunId, oldRunId) => {
   console.log('currentRunId changed from', oldRunId, 'to', newRunId);
   if (newRunId && newRunId !== oldRunId) {
     console.log('Restarting polling with new run ID:', newRunId);
+    
+    // Clear old points when switching to a new run (unless it's a restarted run)
+    // Restarted runs should keep old points and append new ones
+    // Only do this for CASCADE - Pistil has its own handling
+    if (props.model !== 'PISTIL' && !newRunId.startsWith('restarted_run_')) {
+      console.log('[CASCADE] Clearing old points for new run:', newRunId);
+      // Keep only custom points, clear optimization points
+      const customPointsToKeep = allPoints.value.filter(pt => 
+        pt.type === 'custom' || pt.type === 'modified' || 
+        pt.source === 'Manual' || pt.label === 'Custom Design' || 
+        pt.label === 'Modified Design' || pt.algorithm === 'Custom Design'
+      );
+      allPoints.value = customPointsToKeep;
+      console.log('[CASCADE] Cleared optimization points. Kept', customPointsToKeep.length, 'custom points');
+      updateChart();
+    } else if (props.model === 'PISTIL' && newRunId.startsWith('pistil_run_')) {
+      // For Pistil, clear old Pistil points when switching runs
+      console.log('[PISTIL] Clearing old points for new Pistil run:', newRunId);
+      const customPointsToKeep = allPoints.value.filter(pt => 
+        pt.type === 'custom' || pt.type === 'modified' || 
+        pt.source === 'Manual' || pt.label === 'Custom Design' ||
+        pt.model !== 'PISTIL'  // Keep non-Pistil points (custom points)
+      );
+      allPoints.value = customPointsToKeep;
+      console.log('[PISTIL] Cleared old Pistil points. Kept', customPointsToKeep.length, 'custom points');
+      updateChart();
+    }
+    
     startPolling();
   }
 });

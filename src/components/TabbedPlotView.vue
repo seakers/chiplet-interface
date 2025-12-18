@@ -146,9 +146,9 @@ export default {
           console.error('Error fetching comparison by run IDs, falling back:', error);
         }
       }
-      // Fallback: legacy endpoint reading default CSVs
+      // Fallback: legacy endpoint reading default CSVs (assumes CASCADE model)
       try {
-        const response = await fetch('http://127.0.0.1:8000/api/chart-data/?comparative=true');
+        const response = await fetch('http://127.0.0.1:8000/api/chart-data/?comparative=true&model=CASCADE');
         const data = await response.json();
         return data.data || [];
       } catch (error) {

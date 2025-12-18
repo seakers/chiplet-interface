@@ -58,15 +58,27 @@
             </div>
             <div class="form-group">
               <label class="form-label">Traces & Weights</label>
-              <div v-for="(tw, idx) in traceWeights" :key="idx" class="trace-weight-row">
-                <select v-model="tw.name" class="form-select trace-select">
-                  <option v-for="trace in traceOptions" :key="trace" :value="trace">{{ trace }}</option>
-                </select>
-                <input type="number" v-model.number="tw.weight" min="0" max="1" step="0.01" class="form-input trace-weight-input" placeholder="Weight (0-1)" />
-                <button type="button" class="remove-trace-btn" @click="removeTrace(idx)">❌</button>
+              <div v-if="selectedModel === 'CASCADE'">
+                <div v-for="(tw, idx) in traceWeights" :key="idx" class="trace-weight-row">
+                  <select v-model="tw.name" class="form-select trace-select">
+                    <option v-for="trace in traceOptions" :key="trace" :value="trace">{{ trace }}</option>
+                  </select>
+                  <input type="number" v-model.number="tw.weight" min="0" max="1" step="0.01" class="form-input trace-weight-input" placeholder="Weight (0-1)" />
+                  <button type="button" class="remove-trace-btn" @click="removeTrace(idx)">❌</button>
+                </div>
+                <button type="button" class="add-trace-btn" @click="addTrace">+ Add Trace</button>
+                <div v-if="validationErrors.traces" class="field-error">{{ validationErrors.traces }}</div>
               </div>
-              <button type="button" class="add-trace-btn" @click="addTrace">+ Add Trace</button>
-              <div v-if="validationErrors.traces" class="field-error">{{ validationErrors.traces }}</div>
+              <div v-else>
+                <!-- Pistil Model Selection - integrated into Traces & Weights section -->
+                <div class="trace-weight-row">
+                  <select v-model="pistilModel" class="form-select trace-select">
+                    <option v-for="m in pistilModelOptions" :key="m" :value="m">
+                      {{ m }}
+                    </option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
           <div class="form-col">
@@ -298,6 +310,7 @@
 
 <script>
 import { runOptimization } from '../services/optimization.js';
+import { runGA } from '../services/ga.js';
 import { ref, defineComponent, watch } from 'vue';
 import { getRuleMining, getDistanceCorrelation } from '../services/analytics.js';
 import { generateOptimizationReport } from '../services/analytics.js';
@@ -391,7 +404,7 @@ export default {
     RunForm,
     ComparativeStudy
   },
-  emits: ['optimization-success', 'data-mining-complete', 'report-generated', 'run-id-updated', 'view-changed'],
+  emits: ['optimization-success', 'data-mining-complete', 'report-generated', 'run-id-updated', 'view-changed', 'model-selected'],
   data() {
     return {
       currentView: 'welcome', // 'welcome', 'new-optimization', 'load-previous', 'comparative'
@@ -442,14 +455,7 @@ export default {
       isRunning: false,
       dropdownOpen: false,
       selectedObjectives: [],
-      objectivesOptions: [
-        'Energy',
-        'Runtime',
-        'Temperature',
-        'Area',
-        'Latency',
-        'Throughput',
-      ],
+      // Objectives will be computed based on selectedModel
       traceOptions: [
         "gpt-j-65536-weighted",
         "gpt-j-1024-weighted",
@@ -457,6 +463,10 @@ export default {
         "ogbn-products-test",
         "resnet50-test"
       ],
+      pistilModelOptions: [
+        "llama3-8b"
+      ],
+      pistilModel: "llama3-8b",
       traceWeights: [
         { name: 'gpt-j-65536-weighted', weight: 1.0 }
       ],
@@ -471,9 +481,41 @@ export default {
       loadedRunMetadata: null, // Will store metadata of the loaded run
       restartGenerations: 20,
       statusPollingInterval: null, // Interval for polling run status
+      expectedPistilPoints: 0, // Expected number of points for current Pistil GA run
+      pistilRunId: null, // Current Pistil run ID being tracked
+      pistilStatusCheckInterval: null, // Interval for checking Pistil GA completion
     };
   },
   computed: {
+    // Model-specific objectives
+    objectivesOptions() {
+      if (this.selectedModel === 'PISTIL') {
+        return [
+          'Latency per Token',
+          'Energy per Inference',
+          'Energy per Token',
+          'Average Power',
+          'System Power',
+          'System Cost',
+          'Avg Compute Util',
+          'Avg Memory Util',
+          'Prefill Tokens/sec',
+          'System Compute',
+          'System Bandwidth',
+          'System Capacity'
+        ];
+      } else {
+        // CASCADE objectives
+        return [
+          'Energy',
+          'Runtime',
+          'Temperature',
+          'Area',
+          'Latency',
+          'Throughput',
+        ];
+      }
+    },
     canRunComparative() {
       return (
         this.sharedConfig.selectedObjectives.length > 0 &&
@@ -585,6 +627,11 @@ export default {
       this.hasOptimizationData = false; // Reset data availability when starting new optimization
       this.currentRunId = ''; // Reset run ID
       
+      // Stop any existing Pistil GA status check if starting a new run
+      if (this.selectedModel === 'PISTIL' && this.selectedAlgorithm === 'Genetic Algorithm') {
+        this.stopPistilGAStatusCheck();
+      }
+      
       // CRITICAL: Ensure algorithm is explicitly set based on user selection
       const selectedAlgorithm = this.selectedAlgorithm || 'Genetic Algorithm';
       console.log('ProblemFormulation: User selected algorithm:', selectedAlgorithm);
@@ -626,6 +673,66 @@ export default {
           this.loading = false;
           this.isEstimating = false;
           this.errorMessage = e.response?.data?.error || e.response?.data?.message || 'Failed to estimate or run Full-Factorial.';
+          return;
+        }
+      }
+
+      // Pistil + GA: call chart-data directly via runGA (bypass /run-optimization for now)
+      if (this.selectedAlgorithm === 'Genetic Algorithm' && this.selectedModel === 'PISTIL') {
+        try {
+          const primaryTrace = this.traceWeights[0]?.name || 'pistil-default';
+          const gaParams = {
+            model: 'PISTIL',
+            algorithm: selectedAlgorithm,
+            population_size: this.populationSize,
+            generations: this.generations,
+            pistil_model: this.pistilModel || 'llama3-8b',
+            trace: primaryTrace,
+          };
+          console.log('ProblemFormulation: Calling runGA for Pistil with params:', gaParams);
+          
+          // Keep loading = true while GA runs in background
+          // The GA runs asynchronously, so we keep the button disabled/running state
+          // We'll track the expected number of points and clear loading when complete
+          const expectedPoints = this.populationSize * this.generations;
+          this.expectedPistilPoints = expectedPoints;
+          this.pistilRunId = null; // Will be set from response
+          
+          const responseData = await runGA(gaParams);
+          console.log('ProblemFormulation: Pistil GA response:', responseData);
+
+          // Track Pistil run_id for polling
+          const pistilRunId = responseData.pistil_run_id || '';
+          this.pistilRunId = pistilRunId;
+          
+          // Clear old points when starting a new Pistil run
+          // The parent (App.vue) will handle clearing via the run-id-updated event
+          // But we can also emit a signal to clear points
+          console.log('ProblemFormulation: Starting new Pistil run:', pistilRunId);
+          console.log('ProblemFormulation: Previous run_id was:', this.currentRunId);
+          console.log('ProblemFormulation: Expected points:', expectedPoints);
+          
+          this.currentRunId = pistilRunId;
+          console.log('ProblemFormulation: Set Pistil run_id for polling:', pistilRunId);
+
+          // Emit for plot components with run_id
+          // The run-id-updated event will trigger point clearing in App.vue
+          this.$emit('optimization-success', {
+            ...responseData,
+            run_directory: pistilRunId,
+            pistil_run_id: pistilRunId
+          });
+          this.$emit('run-id-updated', pistilRunId);
+          
+          // Start polling to check when GA completes
+          // Keep loading = true until all expected points are evaluated
+          this.startPistilGAStatusCheck(pistilRunId, expectedPoints);
+          
+          return;
+        } catch (error) {
+          console.error('ProblemFormulation: Pistil GA run failed:', error);
+          this.loading = false;
+          this.errorMessage = error.response?.data?.error || 'Failed to run Pistil GA optimization.';
           return;
         }
       }
@@ -894,7 +1001,14 @@ export default {
       }
     },
     async fetchBackupFiles() {
+      // Only fetch if we haven't already loaded the files (avoid redundant API calls)
+      if (this.previousRuns.length > 0 && !this.loadingBackupFiles) {
+        console.log('[ProblemFormulation] Backup files already loaded, skipping fetch');
+        return;
+      }
+      
       this.loadingBackupFiles = true;
+      console.log('[ProblemFormulation] Fetching backup files from API...');
       try {
         const response = await axios.get('/api/list-backup-files/');
         if (response.data.status === 'success') {
@@ -904,12 +1018,12 @@ export default {
             date: backup.timestamp,
             filename: backup.filename
           }));
-          console.log('Loaded backup files:', this.previousRuns);
+          console.log('[ProblemFormulation] Loaded backup files:', this.previousRuns.length, 'runs found');
         } else {
           throw new Error(response.data.message || 'Failed to fetch backup files');
         }
       } catch (error) {
-        console.error('Error fetching backup files:', error);
+        console.error('[ProblemFormulation] Error fetching backup files:', error);
         this.errorMessage = 'Failed to load previous optimization runs.';
       } finally {
         this.loadingBackupFiles = false;
@@ -1176,20 +1290,86 @@ export default {
         console.log('✅ ProblemFormulation: Stopped status polling');
       }
     },
+    startPistilGAStatusCheck(runId, expectedPoints) {
+      // Stop any existing status check
+      if (this.pistilStatusCheckInterval) {
+        clearInterval(this.pistilStatusCheckInterval);
+      }
+      
+      console.log(`[ProblemFormulation] Starting Pistil GA status check for run ${runId}, expecting ${expectedPoints} points`);
+      
+          // Poll every 5 seconds to check if GA has completed
+      this.pistilStatusCheckInterval = setInterval(async () => {
+        try {
+          // Check the points.csv file to see how many points have been evaluated
+          const response = await axios.get('/api/chart-data/', {
+            params: {
+              model: 'PISTIL',
+              run_id: runId,
+              algorithm: 'Genetic Algorithm'
+            }
+          });
+          
+          const currentPoints = response.data?.data || [];
+          const pointsCount = currentPoints.length;
+          
+          console.log(`[ProblemFormulation] Pistil GA status: ${pointsCount}/${expectedPoints} points evaluated`);
+          
+          // If we've reached the expected number of points, GA is complete
+          if (pointsCount >= expectedPoints) {
+            console.log(`[ProblemFormulation] Pistil GA completed! All ${expectedPoints} points evaluated.`);
+            this.loading = false;
+            this.hasOptimizationData = true;
+            this.stopPistilGAStatusCheck();
+          }
+        } catch (error) {
+          console.error('[ProblemFormulation] Error checking Pistil GA status:', error);
+          // Don't stop checking on error - might be temporary
+        }
+      }, 5000); // Check every 5 seconds
+    },
+    stopPistilGAStatusCheck() {
+      if (this.pistilStatusCheckInterval) {
+        clearInterval(this.pistilStatusCheckInterval);
+        this.pistilStatusCheckInterval = null;
+        console.log('✅ ProblemFormulation: Stopped Pistil GA status check');
+      }
+    },
 
   },
   mounted() {
     document.addEventListener('click', this.handleClickOutside);
-    this.fetchBackupFiles(); // Fetch backup files on mount
+    // Don't fetch backup files on mount - only fetch when user selects "Load previous Run"
   },
   beforeDestroy() {
     document.removeEventListener('click', this.handleClickOutside);
     this.stopStatusPolling(); // Clean up polling on component destroy
+    this.stopPistilGAStatusCheck(); // Clean up Pistil GA status check
   },
   watch: {
-    currentView(newView) {
+    // Clear selected objectives when model changes and notify parent
+    selectedModel(newModel, oldModel) {
+      if (newModel !== oldModel) {
+        // Clear selected objectives when switching models
+        if (oldModel) {
+          this.selectedObjectives = [];
+          console.log(`[ProblemFormulation] Model changed from ${oldModel} to ${newModel}, cleared objectives`);
+        } else {
+          console.log(`[ProblemFormulation] Model selected: ${newModel}`);
+        }
+        // Emit model change to parent so Plot can start polling
+        this.$emit('model-selected', newModel);
+      }
+    },
+    currentView(newView, oldView) {
       // Emit view change event to parent component
       this.$emit('view-changed', newView);
+      
+      // Fetch backup files only when user selects "Load previous Run" view
+      if (newView === 'load-previous' && oldView !== 'load-previous') {
+        console.log('[ProblemFormulation] Load previous Run view selected, fetching backup files...');
+        this.fetchBackupFiles();
+      }
     },
     fullFactorialMode(newVal) {
       // Mode changed - no action needed
