@@ -147,6 +147,10 @@ export default {
     filePath: {
       type: String,
       default: null
+    },
+    selectedModel: {
+      type: String,
+      default: null
     }
   },
   data() {
@@ -167,6 +171,8 @@ export default {
   methods: {
     async fetchRuleMining() {
       this.error = null;
+      console.log("Made it here")
+      console.log("Evaluator: ", this.selectedModel)
       try {
         const params = {};
         
@@ -175,6 +181,10 @@ export default {
           params.file_path = this.filePath;
           console.log('RuleMining: Fetching with file path:', this.filePath);
         }
+
+        params.evaluator = this.selectedModel;
+        params.run_id = this.$parent.currentRunId
+        console.log("EVALUATOR: ", params.evaluator)
         
         const response = await getRuleMining(params);
         this.rules = response.rules;
@@ -197,7 +207,8 @@ export default {
           energyMin: this.energyMin,
           energyMax: this.energyMax,
           timeMin: this.timeMin,
-          timeMax: this.timeMax
+          timeMax: this.timeMax,
+          evaluator: this.selectedModel
         };
         
         const response = await getRuleMiningInsights(params);
@@ -265,8 +276,12 @@ export default {
       this.regionSummary = summary;
     },
     async runRuleMining() {
+      console.log("=== runRuleMining CALLED ===");
+      console.log("Button clicked!");
       this.isRunning = true;
       this.error = null;
+      console.log("XYZ")
+      console.log("EVALUATOR: ", this.selectedModel)
       try {
         const params = {
           region: this.selectedRegion,
@@ -275,7 +290,9 @@ export default {
           energyMin: this.energyMin,
           energyMax: this.energyMax,
           timeMin: this.timeMin,
-          timeMax: this.timeMax
+          timeMax: this.timeMax,
+          evaluator: this.selectedModel,
+          run_id: this.$parent.currentRunId
         };
         
         // Add file path if provided (for loaded runs)
@@ -365,6 +382,9 @@ export default {
     }
   },
   mounted() {
+    console.log("RuleMining component mounted!");
+    console.log("Selected model:", this.selectedModel);
+    console.log("File path:", this.filePath);
     this.updatePointSelection(); // Initialize region summary on mount
   }
 };

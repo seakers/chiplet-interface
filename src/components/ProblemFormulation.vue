@@ -1077,7 +1077,9 @@ export default {
         console.log('Running Data Mining...');
         
         // Prepare parameters for data mining
-        let miningParams = {};
+        let miningParams = {
+          evaluator: this.selectedModel
+        };
         
         // Check if this is a loaded run and pass the correct file path
         if (this.currentRunId && this.currentRunId.startsWith('loaded_run_')) {

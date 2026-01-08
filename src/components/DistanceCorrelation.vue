@@ -37,6 +37,10 @@ export default {
     filePath: {
       type: String,
       default: null
+    },
+    selectedModel: {
+      type: String,
+      default: null
     }
   },
   data() {
@@ -61,43 +65,36 @@ export default {
         let url = "http://127.0.0.1:8000/api/chart-data/";
         let params = {};
         
-        // Add file path if provided (for loaded runs)
         if (this.filePath) {
           params.file_path = this.filePath;
-          console.log('DistanceCorrelation: Fetching data with file path:', this.filePath);
         }
 
-        // Use CASCADE model for distance correlation (current analysis is Cascade-specific)
-        params.model = 'CASCADE';
+        // Access selectedModel from App.vue (the root)
+        // selectedModel is tracked in App.vue and updated via handleModelSelected
+        params.model = this.selectedModel || 'CASCADE';
+        params.run_id = this.$parent.currentRunId;
         
         const response = await axios.get(url, { params });
-        this.plotData = response.data.data;
-        if (response.data.correlations) {
-          this.plots.forEach(plot => {
-            plot.corr = response.data.correlations[plot.title];
-          });
-        }
-        this.createPlots();
+        // ... rest of the method
       } catch (error) {
         console.error("Error fetching data:", error);
       }
     },
     async fetchDistanceCorrelation() {
       try {
-        const params = {};
+        const params = {
+          // Pass the model to the distance correlation service
+          evaluator: this.selectedModel || 'CASCADE',
+          run_id: this.$parent.currentRunId
+        };
         
-        // Add file path if provided (for loaded runs)
         if (this.filePath) {
           params.file_path = this.filePath;
-          console.log('DistanceCorrelation: Using file path:', this.filePath);
         }
         
         const response = await getDistanceCorrelation(params);
         this.distanceCorrelations = response;
-        
-        // Automatically send distance correlation context to chat
         await this.sendDistanceCorrelationContextToChat(params, response);
-        
       } catch (error) {
         console.error("Error fetching distance correlation:", error);
       }
@@ -109,7 +106,8 @@ export default {
         const contextParams = {
           objective: this.$parent.currentObjective || 'both',
           trace_name: this.$parent.currentTraceName || 'Unknown',
-          run_id: this.$parent.currentRunId || null
+          run_id: this.$parent.currentRunId || null,
+          evaluator: this.selectedModel || 'CASCADE'
         };
         
         // Get insights for context
@@ -199,7 +197,8 @@ export default {
         const params = {
           objective: this.$parent.currentObjective || 'both',
           trace_name: this.$parent.currentTraceName || 'Unknown',
-          run_id: this.$parent.currentRunId || null
+          run_id: this.$parent.currentRunId || null,
+          evaluator: this.selectedModel || 'CASCADE'
         };
         
         const response = await getDistanceCorrelationInsights(params);

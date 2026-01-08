@@ -83,6 +83,7 @@ export default {
                 const userMessage = this.chatMessage;
                 this.chatMessage = ""; // Clear input
                 this.loading = true; // Indicate loading state
+                evaluator = this.$root.selectedModel || 'CASCADE';
 
                 await nextTick(); // Wait for DOM update
                 this.scrollToBottom();
@@ -90,7 +91,8 @@ export default {
                 // Send message to backend
                 const response = await sendChat({
                     role: "user",
-                    content: userMessage
+                    content: userMessage,
+                    evaluator: evaluator
                 });
 
                 // If backend returns a 'message' field (optimization confirmation), show it immediately

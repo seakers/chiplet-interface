@@ -140,6 +140,7 @@
           <div class="data-mining-section" v-if="!isComparativeAnalysisActive && openWindows.DataMining">
             <DataMining 
               :filePath="currentFilePath"
+              :selectedModel="selectedModel"
               @close="closeWindow('DataMining')"
               @send-insights-to-chat="handleSendInsightsToChat"
             />
@@ -147,14 +148,21 @@
           
           <!-- Docked windows area: always rendered -->
           <div class="dock-area">
-            <draggable v-model="dockOrder" :options="{animation:150, direction:'horizontal'}" class="dock-row">
+            <draggable 
+              v-model="dockOrder" 
+              :options="{animation:150, direction:'horizontal'}" 
+              class="dock-row"
+              item-key="element"
+            >
               <template #item="{element}">
                 <component
+                  :key="element"
                   :is="element"
                   v-if="openWindows[element] && element !== 'DataMining'"
                   @close="closeWindow(element)"
                   class="dock-window"
                   :closable="true"
+                  :selectedModel="selectedModel"
                   v-on="element === 'RunManager' ? { 'plot-run': handlePlotRun, 'plot-runs': handlePlotRuns, 'show-comparison': handleShowComparison } : {}"
                 />
               </template>

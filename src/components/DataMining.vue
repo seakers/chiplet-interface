@@ -51,14 +51,14 @@
           <h3>Rule Mining</h3>
           <button @click="showRuleMining = false" class="close-btn" aria-label="Close">&times;</button>
         </div>
-        <RuleMining :filePath="filePath" @send-insights-to-chat="$emit('send-insights-to-chat', $event)" />
+        <RuleMining :filePath="filePath" :selectedModel="selectedModel" @send-insights-to-chat="$emit('send-insights-to-chat', $event)" />
       </div>
       <div v-if="showDistanceCorrelation" class="analysis-window">
         <div class="analysis-window-header">
           <h3>Distance Correlation Study</h3>
           <button @click="showDistanceCorrelation = false" class="close-btn" aria-label="Close">&times;</button>
         </div>
-        <DistanceCorrelation :filePath="filePath" @send-insights-to-chat="$emit('send-insights-to-chat', $event)" />
+        <DistanceCorrelation :filePath="filePath" :selectedModel="selectedModel" @send-insights-to-chat="$emit('send-insights-to-chat', $event)" />
       </div>
     </div>
   </div>
@@ -89,9 +89,18 @@ export default {
       type: String,
       default: null
     },
+    selectedModel: {
+      type: String,
+      default: null
+    },
     closable: {
       type: Boolean,
       default: true
+    },
+    mounted() {
+      console.log('DataMining component mounted');
+      console.log('Received selectedModel prop:', this.selectedModel);
+      console.log('Received filePath prop:', this.filePath);
     }
   },
 };
