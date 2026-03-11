@@ -51,7 +51,18 @@ import { sendChat, clearChat, addInfo } from '@/services/chat';
 
 export default {
     props: {
-        chatOpen: Boolean,
+        chatOpen: {
+            type: Boolean,
+            default: true
+        },
+        selectedModel: {
+            type: String,
+            default: null
+        },
+        run_id: {
+            type: String,
+            default: null
+        }
     },
     emits: ["toggle-chat", "highlighting-response"],
     data() {
@@ -83,7 +94,7 @@ export default {
                 const userMessage = this.chatMessage;
                 this.chatMessage = ""; // Clear input
                 this.loading = true; // Indicate loading state
-                evaluator = this.$root.selectedModel || 'CASCADE';
+                const evaluator = this.selectedModel || 'CASCADE';
 
                 await nextTick(); // Wait for DOM update
                 this.scrollToBottom();
@@ -92,7 +103,8 @@ export default {
                 const response = await sendChat({
                     role: "user",
                     content: userMessage,
-                    evaluator: evaluator
+                    evaluator: evaluator,
+                    run_id: this.run_id,
                 });
 
                 // If backend returns a 'message' field (optimization confirmation), show it immediately

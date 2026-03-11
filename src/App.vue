@@ -141,6 +141,7 @@
             <DataMining 
               :filePath="currentFilePath"
               :selectedModel="selectedModel"
+              :currentRunId="currentRunId"
               @close="closeWindow('DataMining')"
               @send-insights-to-chat="handleSendInsightsToChat"
             />
@@ -172,7 +173,13 @@
         <!-- RIGHT COLUMN (Chat) -->
         <div class="right-col">
           <div class="chat-scroll-wrap">
-            <Chat ref="Chat" :chatOpen="true" @highlighting-response="handleHighlightingResponse" @run-id-updated="handleRunIdUpdated" />
+            <Chat ref="Chat" 
+              :chatOpen="true" 
+              :selectedModel="selectedModel"
+              :run_id="currentRunId"
+              @highlighting-response="handleHighlightingResponse" 
+              @run-id-updated="handleRunIdUpdated" 
+            />
           </div>
         </div>
       </div>
@@ -243,6 +250,20 @@ export default {
       selectedModel: null  // Track selected model - starts as null until user selects
     };
   },
+  watch: {
+    currentRunId(newVal, oldVal) {
+      console.log('=== App.vue currentRunId changed ===');
+      console.log('  Old value:', oldVal);
+      console.log('  New value:', newVal);
+      console.log('  typeof:', typeof newVal);
+      console.log('=== END ===');
+      },
+    'openWindows.DataMining'(newVal) {
+      console.log('=== DataMining window opened/closed ===');
+      console.log('DataMining open:', newVal);
+      console.log('Current run_id to pass:', this.currentRunId);
+    }
+  },
   computed: {
     currentFilePath() {
       // Check if this is a loaded run and return the temporary file path
@@ -302,6 +323,7 @@ export default {
         response.run_a_results || 
         response.run_b_results ||
         response.pistil_run_id ||  // Pistil GA response
+        response.deep_rl_run_id ||
         response.run_directory ||  // CASCADE run response
         (response.status === 'success' && (response.data || response.plot_data))
       );
@@ -331,14 +353,18 @@ export default {
             console.log('Clearing custom points for new optimization run');
         }
         
-        // Set current run ID for polling (handle both CASCADE and PISTIL)
-        const runId = response.run_directory || response.pistil_run_id;
+        // Set current run ID for polling (handle CASCADE, PISTIL, and Deep RL)
+        const runId = response.run_directory || response.pistil_run_id || response.deep_rl_run_id;
         
         // Update selectedModel if we can detect it from the response
         if (response.pistil_run_id && !this.selectedModel) {
           this.selectedModel = 'PISTIL';
           console.log('[App.vue] Detected PISTIL from response, setting selectedModel');
-        } else if (response.run_directory && !response.pistil_run_id && !this.selectedModel) {
+        } else if (response.deep_rl_run_id && !this.selectedModel) {
+          // Deep RL can be either model - check response for model info
+          this.selectedModel = response.model || 'CASCADE';
+          console.log('[App.vue] Detected Deep RL response, setting selectedModel to:', this.selectedModel);
+        } else if (response.run_directory && !response.pistil_run_id && !response.deep_rl_run_id && !this.selectedModel) {
           this.selectedModel = 'CASCADE';
           console.log('[App.vue] Detected CASCADE from response, setting selectedModel');
         }
@@ -612,14 +638,14 @@ export default {
     handleDataMiningComplete(dataMiningResults) {
       console.log('App.vue: handleDataMiningComplete called with:', dataMiningResults);
       
-      // Show data mining results in chat
-      if (this.$refs.Chat && this.$refs.Chat.addMessage) {
-        const message = `Data mining analysis completed! Rule mining found ${dataMiningResults.ruleMining?.rules?.length || 0} rules, and distance correlation analysis is ready.`;
-        this.$refs.Chat.addMessage(message, 'chat');
-      }
-      
       // Open the DataMining component window to show the results
       this.toggleWindow('DataMining');
+
+      // Show data mining results in chat
+      //if (this.$refs.Chat && this.$refs.Chat.addMessage) {
+      //  const message = `Data mining analysis completed! Rule mining found ${dataMiningResults.ruleMining?.rules?.length || 0} rules, and distance correlation analysis is ready.`;
+      //  this.$refs.Chat.addMessage(message, 'chat');
+      //}
     },
     handleReportGenerated(reportData) {
       console.log('App.vue: handleReportGenerated called with:', reportData);
@@ -680,7 +706,6 @@ export default {
           console.warn('Could not set ProblemFormulation state from App:', e?.message || e);
         }
       }
-      console.log('=== App.vue: handleRunIdUpdated END ===');
     },
     handleViewChanged(view) {
       console.log('App.vue: View changed to:', view);

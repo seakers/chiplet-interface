@@ -151,6 +151,10 @@ export default {
     selectedModel: {
       type: String,
       default: null
+    },
+    currentRunId: {
+      type: String,
+      default: null
     }
   },
   data() {
@@ -169,101 +173,6 @@ export default {
     };
   },
   methods: {
-    async fetchRuleMining() {
-      this.error = null;
-      console.log("Made it here")
-      console.log("Evaluator: ", this.selectedModel)
-      try {
-        const params = {};
-        
-        // Add file path if provided (for loaded runs)
-        if (this.filePath) {
-          params.file_path = this.filePath;
-          console.log('RuleMining: Fetching with file path:', this.filePath);
-        }
-
-        params.evaluator = this.selectedModel;
-        params.run_id = this.$parent.currentRunId
-        console.log("EVALUATOR: ", params.evaluator)
-        
-        const response = await getRuleMining(params);
-        this.rules = response.rules;
-      } catch (error) {
-        console.error("Error fetching rule mining results:", error);
-        this.error = "Failed to fetch rule mining results. Please try again.";
-      }
-    },
-    async getInsights() {
-      try {
-        // Get optimization context from parent or props
-        const params = {
-          objective: this.$parent.currentObjective || 'both',
-          trace_name: this.$parent.currentTraceName || 'Unknown',
-          run_id: this.$parent.currentRunId || null,
-          // Include rule mining specific parameters
-          region: this.selectedRegion,
-          paretoStartRank: this.paretoStartRank,
-          paretoEndRank: this.paretoEndRank,
-          energyMin: this.energyMin,
-          energyMax: this.energyMax,
-          timeMin: this.timeMin,
-          timeMax: this.timeMax,
-          evaluator: this.selectedModel
-        };
-        
-        const response = await getRuleMiningInsights(params);
-        const insights = response.insights;
-        const structuredData = response.structured_data;
-        
-        // Store structured data for potential follow-up questions
-        this.$parent.lastDataMiningResults = {
-          type: 'rule_mining',
-          structured_data: structuredData
-        };
-        
-        this.$emit('send-insights-to-chat', insights);
-      } catch (error) {
-        console.error("Error getting rule mining insights:", error);
-        this.error = "Failed to get insights. Please try again.";
-      }
-    },
-    
-    async sendRuleMiningContextToChat(params, response) {
-      try {
-        // Get optimization context from parent or props
-        const contextParams = {
-          objective: this.$parent.currentObjective || 'both',
-          trace_name: this.$parent.currentTraceName || 'Unknown',
-          run_id: this.$parent.currentRunId || null,
-          // Include rule mining specific parameters
-          region: params.region,
-          paretoStartRank: params.paretoStartRank,
-          paretoEndRank: params.paretoEndRank,
-          energyMin: params.energyMin,
-          energyMax: params.energyMax,
-          timeMin: params.timeMin,
-          timeMax: params.timeMax
-        };
-        
-        // Get insights for context
-        const insightsResponse = await getRuleMiningInsights(contextParams);
-        const structuredData = insightsResponse.structured_data;
-        
-        // Store structured data for potential follow-up questions
-        this.$parent.lastDataMiningResults = {
-          type: 'rule_mining',
-          structured_data: structuredData
-        };
-        
-        // Send context silently to chat (no visible message)
-        this.$emit('send-insights-to-chat', structuredData, { silent: true });
-        
-        console.log('Rule mining context sent to chat silently');
-      } catch (error) {
-        console.error("Error sending rule mining context to chat:", error);
-        // Don't show error to user as this is background functionality
-      }
-    },
     updatePointSelection() {
       let summary = '';
       if (this.selectedRegion === 'pareto') {
@@ -280,8 +189,9 @@ export default {
       console.log("Button clicked!");
       this.isRunning = true;
       this.error = null;
-      console.log("XYZ")
-      console.log("EVALUATOR: ", this.selectedModel)
+      console.log("EVALUATOR: ", this.selectedModel);
+      console.log("CURRENT RUN ID: ", this.currentRunId);
+      
       try {
         const params = {
           region: this.selectedRegion,
@@ -292,7 +202,7 @@ export default {
           timeMin: this.timeMin,
           timeMax: this.timeMax,
           evaluator: this.selectedModel,
-          run_id: this.$parent.currentRunId
+          run_id: this.currentRunId  // Use prop instead of $parent
         };
         
         // Add file path if provided (for loaded runs)
@@ -338,7 +248,6 @@ export default {
       
       return formattedParts.join(' ');
     },
-    
     formatCondition(condition) {
       // Handle different condition formats
       if (!condition) return '';
@@ -379,13 +288,74 @@ export default {
       // You can add more patterns here as needed
       
       return condition;
+    },
+    async sendRuleMiningContextToChat(params, response) {
+      try {
+        const contextParams = {
+          objective: 'both',
+          trace_name: 'Unknown',
+          run_id: this.currentRunId,  // Use prop
+          region: params.region,
+          paretoStartRank: params.paretoStartRank,
+          paretoEndRank: params.paretoEndRank,
+          energyMin: params.energyMin,
+          energyMax: params.energyMax,
+          timeMin: params.timeMin,
+          timeMax: params.timeMax
+        };
+        
+        const insightsResponse = await getRuleMiningInsights(contextParams);
+        const structuredData = insightsResponse.structured_data;
+        
+        this.$emit('send-insights-to-chat', structuredData, { silent: true });
+        
+        console.log('Rule mining context sent to chat silently');
+      } catch (error) {
+        console.error("Error sending rule mining context to chat:", error);
+      }
+    },
+
+    async getInsights() {
+      if (this.rules.length === 0) {
+        this.error = "Please run the analysis first before getting insights.";
+        return;
+      }
+      
+      try {
+        const params = {
+          objective: 'both',
+          trace_name: 'Unknown',
+          run_id: this.currentRunId,
+          evaluator: this.selectedModel,
+          region: this.selectedRegion,
+          paretoStartRank: this.paretoStartRank,
+          paretoEndRank: this.paretoEndRank,
+          energyMin: this.energyMin,
+          energyMax: this.energyMax,
+          timeMin: this.timeMin,
+          timeMax: this.timeMax
+        };
+        
+        const response = await getRuleMiningInsights(params);
+        const insights = response.insights;
+        
+        // Emit event to parent to send to chat
+        this.$emit('send-insights-to-chat', insights);
+        
+      } catch (error) {
+        console.error("Error getting insights:", error);
+        this.error = "Failed to get insights. Please try again.";
+      }
     }
+    
+    // ... other methods remain the same
   },
   mounted() {
     console.log("RuleMining component mounted!");
     console.log("Selected model:", this.selectedModel);
     console.log("File path:", this.filePath);
-    this.updatePointSelection(); // Initialize region summary on mount
+    console.log("Current run ID:", this.currentRunId);
+    this.updatePointSelection();
   }
 };
 </script>

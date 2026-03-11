@@ -87,6 +87,7 @@
               <select id="algorithm" v-model="selectedAlgorithm" class="form-select" :class="{ 'error': validationErrors.algorithm }">
                 <option value="Genetic Algorithm">Genetic Algorithm</option>
                 <option value="Full-Factorial">Full-Factorial</option>
+                <option value="Deep RL">Deep RL</option>
               </select>
               <div v-if="validationErrors.algorithm" class="field-error">{{ validationErrors.algorithm }}</div>
             </div>
@@ -120,6 +121,16 @@
                 </div>
               </div>
             </div>
+          </div>
+          <div v-if="selectedAlgorithm === 'Deep RL'" class="form-group">
+            <label class="form-label" for="episodes">Number of Episodes</label>
+            <input id="episodes" type="number" v-model.number="deepRLEpisodes" class="form-input" min="1" :class="{ 'error': validationErrors.episodes }" />
+            <div v-if="validationErrors.episodes" class="field-error">{{ validationErrors.episodes }}</div>
+          </div>
+          <div v-if="selectedAlgorithm === 'Deep RL'" class="form-group">
+            <label class="form-label" for="miniBatchSize">Mini-Batch Size</label>
+            <input id="miniBatchSize" type="number" v-model.number="deepRLMiniBatchSize" class="form-input" min="1" :class="{ 'error': validationErrors.miniBatchSize }" />
+            <div v-if="validationErrors.miniBatchSize" class="field-error">{{ validationErrors.miniBatchSize }}</div>
           </div>
           </div>
         </div>
@@ -484,6 +495,9 @@ export default {
       expectedPistilPoints: 0, // Expected number of points for current Pistil GA run
       pistilRunId: null, // Current Pistil run ID being tracked
       pistilStatusCheckInterval: null, // Interval for checking Pistil GA completion
+      // Deep RL specific inputs
+      deepRLEpisodes: 100,
+      deepRLMiniBatchSize: 32,
     };
   },
   computed: {
@@ -592,6 +606,15 @@ export default {
         }
       } else if (this.selectedAlgorithm === 'Full-Factorial') {
         // no extra params for v1 (unconstrained, total fixed at 12)
+      } else if (this.selectedAlgorithm === 'Deep RL') {
+        if (!this.deepRLEpisodes || this.deepRLEpisodes < 1) {
+          errors.episodes = 'Number of episodes must be at least 1';
+          isValid = false;
+        }
+        if (!this.deepRLMiniBatchSize || this.deepRLMiniBatchSize < 1) {
+          errors.miniBatchSize = 'Mini-batch size must be at least 1';
+          isValid = false;
+        }
       }
 
       return { isValid, errors };
@@ -733,6 +756,68 @@ export default {
           console.error('ProblemFormulation: Pistil GA run failed:', error);
           this.loading = false;
           this.errorMessage = error.response?.data?.error || 'Failed to run Pistil GA optimization.';
+          return;
+        }
+      }
+
+      if (this.selectedAlgorithm === 'Deep RL') {
+        try {
+          const deepRLParams = {
+            model: this.selectedModel,
+            algorithm: 'Deep RL',
+            objectives: this.selectedObjectives,
+            traces: this.traceWeights.map(tw => ({ name: tw.name, weight: tw.weight })),
+            episodes: this.deepRLEpisodes,
+            mini_batch_size: this.deepRLMiniBatchSize,
+            // Include pistil_model if PISTIL is selected
+            ...(this.selectedModel === 'PISTIL' && { pistil_model: this.pistilModel || 'llama3-8b' })
+          };
+          
+          console.log('ProblemFormulation: Calling runOptimization for Deep RL with params:', deepRLParams);
+          
+          // Set lastAlgorithm for plot labeling
+          try {
+            if (typeof window !== 'undefined') {
+              window.__lastAlgorithm = 'Deep RL';
+              if (window.localStorage) {
+                window.localStorage.setItem('lastAlgorithm', 'Deep RL');
+              }
+              console.log('Deep RL: Set lastAlgorithm to Deep RL');
+            }
+          } catch (e) {
+            console.error('Error setting lastAlgorithm for Deep RL:', e);
+          }
+          
+          const response = await runOptimization(deepRLParams);
+          console.log('ProblemFormulation: Deep RL response:', response);
+          
+          // Extract run ID from response
+          const runId = response.data?.run_id || response.data?.run_directory || response.data?.deep_rl_run_id || '';
+          this.currentRunId = runId;
+          this.hasOptimizationData = true;
+          
+          // Keep loading state - Deep RL runs asynchronously
+          // The loading will be cleared when polling detects completion
+          console.log('ProblemFormulation: Deep RL started. Run ID:', runId);
+          
+          // Emit events for parent components
+          this.$emit('optimization-success', {
+            ...response.data,
+            run_directory: runId,
+            deep_rl_run_id: runId
+          });
+          this.$emit('run-id-updated', runId);
+          
+          // Note: Deep RL runs async, so we keep loading=true
+          // Points will appear via polling as they're evaluated
+          // Loading will be cleared when run completes (can add status polling later if needed)
+          this.loading = false; // Set to false for now since no status polling
+          
+          return;
+        } catch (error) {
+          console.error('ProblemFormulation: Deep RL run failed:', error);
+          this.loading = false;
+          this.errorMessage = error.response?.data?.error || 'Failed to run Deep RL optimization.';
           return;
         }
       }
@@ -1016,7 +1101,8 @@ export default {
             id: backup.filename,
             name: backup.display_name,
             date: backup.timestamp,
-            filename: backup.filename
+            filename: backup.filename,
+            evaluator: backup.evaluator,
           }));
           console.log('[ProblemFormulation] Loaded backup files:', this.previousRuns.length, 'runs found');
         } else {
@@ -1072,43 +1158,20 @@ export default {
     async runDataMining() {
       if (!this.hasOptimizationData) return;
       
-      try {
-        this.loading = true;
-        console.log('Running Data Mining...');
-        
-        // Prepare parameters for data mining
-        let miningParams = {
-          evaluator: this.selectedModel
-        };
-        
-        // Check if this is a loaded run and pass the correct file path
-        if (this.currentRunId && this.currentRunId.startsWith('loaded_run_')) {
-          // For loaded runs, use the temporary file path
-          const tempFilePath = `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${this.currentRunId}.csv`;
-          miningParams.file_path = tempFilePath;
-          console.log('Using loaded run file for data mining:', tempFilePath);
-        }
-        
-        // Run rule mining
-        const ruleMiningResponse = await getRuleMining(miningParams);
-        console.log('Rule Mining Results:', ruleMiningResponse);
-        
-        // Run distance correlation
-        const distanceCorrResponse = await getDistanceCorrelation(miningParams);
-        console.log('Distance Correlation Results:', distanceCorrResponse);
-        
-        // Emit the results to parent component for display
-        this.$emit('data-mining-complete', {
-          ruleMining: ruleMiningResponse,
-          distanceCorrelation: distanceCorrResponse
-        });
-        
-        this.loading = false;
-      } catch (error) {
-        console.error('Data Mining Error:', error);
-        this.errorMessage = 'Failed to run data mining analysis.';
-        this.loading = false;
+      // For PISTIL, ensure we have a run_id before opening data mining
+      if (this.selectedModel === 'PISTIL' && !this.currentRunId) {
+        console.error('Cannot run data mining for PISTIL without a run_id');
+        this.errorMessage = 'Please wait for the optimization to complete before running data mining.';
+        return;
       }
+      
+      console.log('Opening Data Mining with run_id:', this.currentRunId);
+      
+      // Emit event to App.vue to open the DataMining window
+      this.$emit('data-mining-complete', {
+        runId: this.currentRunId,
+        model: this.selectedModel
+      });
     },
     async generateReport() {
       if (!this.hasOptimizationData) return;

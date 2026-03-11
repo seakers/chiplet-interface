@@ -1832,6 +1832,7 @@ watch(() => props.isComparative, () => {
 watch(() => props.model, (newModel, oldModel) => {
   // Only start polling when a model is explicitly selected
   // Skip if model is null/undefined (no selection yet)
+
   if (!newModel) {
     console.log('[Plot] No model selected yet, not starting polling');
     // Stop polling if model is cleared
