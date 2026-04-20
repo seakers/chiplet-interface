@@ -769,12 +769,11 @@ export default {
             traces: this.traceWeights.map(tw => ({ name: tw.name, weight: tw.weight })),
             episodes: this.deepRLEpisodes,
             mini_batch_size: this.deepRLMiniBatchSize,
-            // Include pistil_model if PISTIL is selected
             ...(this.selectedModel === 'PISTIL' && { pistil_model: this.pistilModel || 'llama3-8b' })
           };
-          
+
           console.log('ProblemFormulation: Calling runOptimization for Deep RL with params:', deepRLParams);
-          
+
           // Set lastAlgorithm for plot labeling
           try {
             if (typeof window !== 'undefined') {
@@ -782,38 +781,50 @@ export default {
               if (window.localStorage) {
                 window.localStorage.setItem('lastAlgorithm', 'Deep RL');
               }
-              console.log('Deep RL: Set lastAlgorithm to Deep RL');
             }
           } catch (e) {
             console.error('Error setting lastAlgorithm for Deep RL:', e);
           }
-          
+
           const response = await runOptimization(deepRLParams);
           console.log('ProblemFormulation: Deep RL response:', response);
-          
-          // Extract run ID from response
-          const runId = response.data?.run_id || response.data?.run_directory || response.data?.deep_rl_run_id || '';
+
+          // FIX: For PISTIL Deep RL, pistil_run_id is the directory key the
+          // plot's fetchChartData uses to find the correct points.csv [1].
+          // Priority: pistil_run_id > run_id > run_directory > deep_rl_run_id
+          let runId;
+          if (this.selectedModel === 'PISTIL') {
+            runId = response.data?.pistil_run_id   // "pistil_run_YYYYMMDD_HHMMSS" ← correct dir
+                || response.data?.deep_rl_run_id
+                || response.data?.run_directory
+                || response.data?.run_id
+                || '';
+            console.log('ProblemFormulation: PISTIL Deep RL - using pistil_run_id:', runId);
+          } else {
+            // CASCADE Deep RL: run_directory is the filesystem dir for polling
+            runId = response.data?.run_directory
+                || response.data?.deep_rl_run_id
+                || response.data?.run_id
+                || '';
+            console.log('ProblemFormulation: CASCADE Deep RL - using run_directory:', runId);
+          }
+
           this.currentRunId = runId;
           this.hasOptimizationData = true;
-          
-          // Keep loading state - Deep RL runs asynchronously
-          // The loading will be cleared when polling detects completion
           console.log('ProblemFormulation: Deep RL started. Run ID:', runId);
-          
-          // Emit events for parent components
+
+          // Emit events - include both keys for backward compat
           this.$emit('optimization-success', {
             ...response.data,
             run_directory: runId,
-            deep_rl_run_id: runId
+            deep_rl_run_id: runId,
+            pistil_run_id: runId,  // ensure plot watcher always sees this
           });
           this.$emit('run-id-updated', runId);
-          
-          // Note: Deep RL runs async, so we keep loading=true
-          // Points will appear via polling as they're evaluated
-          // Loading will be cleared when run completes (can add status polling later if needed)
-          this.loading = false; // Set to false for now since no status polling
-          
+
+          this.loading = false;
           return;
+
         } catch (error) {
           console.error('ProblemFormulation: Deep RL run failed:', error);
           this.loading = false;

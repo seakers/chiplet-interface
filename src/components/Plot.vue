@@ -494,9 +494,6 @@ const fetchChartData = async (runId = null) => {
         
         console.log('Plot fetchChartData - Final params:', { model: params.model, run_id: params.run_id, algorithm: params.algorithm });
         
-        const response = await axios.get(url, { params });
-        const data = response.data.data;
-        
         // For comparative analysis, log the data structure to help debug
         if (props.isComparative) {
             console.log('Comparative data received:', data ? data.length : 'no data');
@@ -516,6 +513,18 @@ const fetchChartData = async (runId = null) => {
                 isComparativeLoading.value = true;
                 comparativeLoadingMessage.value = 'Comparative analysis in progress...';
             }
+        }
+
+        console.log('fetchChartData - Final request params:', params);
+        const response = await axios.get(url, { params });
+        const data = response.data.data;
+        
+        console.log('fetchChartData - Response received');
+        console.log('fetchChartData - Data length:', data?.length);
+        if (data && data.length > 0) {
+          console.log('fetchChartData - First point:', data[0]);
+          console.log('fetchChartData - First point model:', data[0]?.model);
+          console.log('fetchChartData - First point keys:', Object.keys(data[0]));
         }
         
         return data;
@@ -537,6 +546,21 @@ function buildChartData() {
   // Map axis selections to data fields
   const xField = getFieldForAxis(selectedXAxis.value);
   const yField = getFieldForAxis(selectedYAxis.value);
+
+  console.log('=== buildChartData DEBUG ===');
+  console.log('Selected X Axis:', selectedXAxis.value, '-> Field:', xField);
+  console.log('Selected Y Axis:', selectedYAxis.value, '-> Field:', yField);
+  console.log('Total allPoints:', allPoints.value.length);
+  
+  // Check what fields PISTIL points actually have
+  const pistilPoints = allPoints.value.filter(pt => pt?.model === 'PISTIL');
+  console.log('PISTIL points count:', pistilPoints.length);
+  if (pistilPoints.length > 0) {
+    console.log('Sample PISTIL point keys:', Object.keys(pistilPoints[0]));
+    console.log('Sample PISTIL point:', pistilPoints[0]);
+    console.log('xField value in sample:', pistilPoints[0][xField]);
+    console.log('yField value in sample:', pistilPoints[0][yField]);
+  }
   
   // Filter out any undefined or malformed points and map to selected axes
   const validPoints = allPoints.value
@@ -1154,290 +1178,310 @@ function updateChart() {
 // Update updateChartData to robustly map both array and object points for comparative study polling, ensuring all points for Run A and Run B are plotted correctly.
 const updateChartData = (newChartData, traceMetadata = null) => {
   console.log('=== updateChartData START ===');
-  console.log('Updating chart data with:', newChartData ? newChartData.length : 'no data');
-  console.log('New chart data type:', typeof newChartData);
-  console.log('New chart data keys:', newChartData ? Object.keys(newChartData) : 'no data');
+  console.log('props.model:', props.model);
+  console.log('props.currentRunId:', props.currentRunId);
+  console.log('newChartData:', newChartData ? (Array.isArray(newChartData) ? `Array(${newChartData.length})` : typeof newChartData) : 'null');
   
   // Store current custom points before updating
-  const currentCustomPoints = allPoints.value.filter(pt => 
-    pt.type === 'custom' || pt.type === 'modified' || 
-    pt.source === 'Manual' || pt.label === 'Custom Design' || 
+  const currentCustomPoints = allPoints.value.filter(pt =>
+    pt.type === 'custom' || pt.type === 'modified' ||
+    pt.source === 'Manual' || pt.label === 'Custom Design' ||
     pt.label === 'Modified Design' || pt.algorithm === 'Custom Design'
   );
   console.log('Preserving custom points:', currentCustomPoints.length);
-  
-  // Handle null data from fetchChartData during comparative analysis
+
+  // Handle null data - preserve existing data
   if (newChartData === null) {
-    console.log('Received null data - preserving existing data for comparative analysis');
-    return; // Don't update anything, preserve existing data
+    console.log('Received null data - preserving existing data');
+    return;
   }
-  
-  // If comparative study, expect {A: [...], B: [...]} or run_a_results/run_b_results
+
+  // ============================================
+  // COMPARATIVE STUDY MODE
+  // ============================================
   if (newChartData && (newChartData.A || newChartData.B || newChartData.run_a_results || newChartData.run_b_results)) {
+    console.log('Processing comparative study data');
     let points = [];
-    if (newChartData.A) points = points.concat(newChartData.A.map(pt =>
-      Array.isArray(pt)
-        ? { x: pt[0], y: pt[1], run: 'A', run_label: 'Run A' }
-        : { ...pt, run: 'A', run_label: 'Run A' }
-    ));
-    if (newChartData.B) points = points.concat(newChartData.B.map(pt =>
-      Array.isArray(pt)
-        ? { x: pt[0], y: pt[1], run: 'B', run_label: 'Run B' }
-        : { ...pt, run: 'B', run_label: 'Run B' }
-    ));
-    if (newChartData.run_a_results) points = points.concat(newChartData.run_a_results.map(pt =>
-      Array.isArray(pt)
-        ? { x: pt[0], y: pt[1], run: 'A', run_label: 'Run A' }
-        : { ...pt, run: 'A', run_label: 'Run A' }
-    ));
-    if (newChartData.run_b_results) points = points.concat(newChartData.run_b_results.map(pt =>
-      Array.isArray(pt)
-        ? { x: pt[0], y: pt[1], run: 'B', run_label: 'Run B' }
-        : { ...pt, run: 'B', run_label: 'Run B' }
-    ));
     
-    // Only update if we have new data
+    if (newChartData.A) {
+      points = points.concat(newChartData.A.map(pt =>
+        Array.isArray(pt)
+          ? { x: pt[0], y: pt[1], run: 'A', run_label: 'Run A' }
+          : { ...pt, run: 'A', run_label: 'Run A' }
+      ));
+    }
+    if (newChartData.B) {
+      points = points.concat(newChartData.B.map(pt =>
+        Array.isArray(pt)
+          ? { x: pt[0], y: pt[1], run: 'B', run_label: 'Run B' }
+          : { ...pt, run: 'B', run_label: 'Run B' }
+      ));
+    }
+    if (newChartData.run_a_results) {
+      points = points.concat(newChartData.run_a_results.map(pt =>
+        Array.isArray(pt)
+          ? { x: pt[0], y: pt[1], run: 'A', run_label: 'Run A' }
+          : { ...pt, run: 'A', run_label: 'Run A' }
+      ));
+    }
+    if (newChartData.run_b_results) {
+      points = points.concat(newChartData.run_b_results.map(pt =>
+        Array.isArray(pt)
+          ? { x: pt[0], y: pt[1], run: 'B', run_label: 'Run B' }
+          : { ...pt, run: 'B', run_label: 'Run B' }
+      ));
+    }
+
     if (points.length > 0) {
       allPoints.value = points;
-      // Restore custom points
       if (currentCustomPoints.length > 0) {
         allPoints.value.push(...currentCustomPoints);
-        console.log('Restored custom points after comparative update. Total points:', allPoints.value.length);
       }
-      console.log('Comparative mode - Total points after update:', allPoints.value.length);
+      console.log('Comparative mode - Total points:', allPoints.value.length);
     } else {
-      console.log('Comparative mode - No new data received, preserving existing data');
-    }
-  } else {
-    // Normal mode - just use the new data, let custom points be handled naturally
-    const defaultAlgorithm = (newChartData && newChartData.metadata && newChartData.metadata.algorithm) || lastAlgorithm.value || 'Genetic Algorithm';
-    
-    // Preserve custom design markers when mapping new points
-    const newPoints = newChartData && newChartData.map
-      ? newChartData.map(pt => {
-          // Check if this point matches any existing custom design point
-          const isCustomPoint = currentCustomPoints.some(customPt => 
-            Math.abs(customPt.x - pt.x) < 0.001 &&
-            Math.abs(customPt.y - pt.y) < 0.001 &&
-            customPt.gpu === pt.gpu &&
-            customPt.attn === pt.attn &&
-            customPt.sparse === pt.sparse &&
-            customPt.conv === pt.conv
-          );
-          
-          // If it's a custom point, preserve its markers; otherwise use default algorithm
-          if (isCustomPoint) {
-            // Find the matching custom point to preserve its properties
-            const matchingCustom = currentCustomPoints.find(customPt => 
-              Math.abs(customPt.x - pt.x) < 0.001 &&
-              Math.abs(customPt.y - pt.y) < 0.001 &&
-              customPt.gpu === pt.gpu &&
-              customPt.attn === pt.attn &&
-              customPt.sparse === pt.sparse &&
-              customPt.conv === pt.conv
-            );
-            return {
-              ...pt,
-              ...matchingCustom, // Preserve all custom point properties
-              algorithm: matchingCustom?.algorithm || 'Custom Design',
-              type: matchingCustom?.type || 'custom',
-              source: matchingCustom?.source || 'Manual',
-              label: matchingCustom?.label || 'Custom Design',
-              trace: pt.trace || matchingCustom?.trace || '',
-            };
-          } else {
-            // Regular point - use default algorithm
-            return {
-              ...pt,
-              algorithm: pt.algorithm || defaultAlgorithm,
-              trace: pt.trace || '',
-            };
-          }
-        })
-      : [];
-    if (newChartData && newChartData.metadata && newChartData.metadata.algorithm) {
-      lastAlgorithm.value = newChartData.metadata.algorithm;
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem('lastAlgorithm', lastAlgorithm.value);
-      }
-    }
-    const currentModel = props.model || (newPoints.length > 0 && newPoints[0]?.model === 'PISTIL' ? 'PISTIL' : 'CASCADE');
-    const modelPrefix = currentModel === 'PISTIL' ? '[PISTIL]' : '[CASCADE]';
-    console.log(`${modelPrefix} Processing new points:`, newPoints.length);
-    if (newPoints.length > 0) {
-      console.log(`${modelPrefix} Sample new point:`, newPoints[0]);
+      console.log('Comparative mode - No new data, preserving existing');
     }
     
-    // Check if this is a loaded run (has loaded_from_backup flag)
-    const isLoadedRun = newChartData && newChartData.loaded_from_backup;
-    
-    // Special handling for restarted runs (CASCADE only) - append new points instead of replacing
-    // Skip this for PISTIL - Pistil has its own handling below
-    if (props.model !== 'PISTIL' && props.currentRunId && props.currentRunId.startsWith('restarted_run_')) {
-      console.log('[CASCADE] Restarted run mode - appending new points to existing points');
-      console.log('[CASCADE] Current allPoints before processing:', allPoints.value.length);
-      console.log('[CASCADE] New points from polling:', newPoints.length);
-      console.log('[CASCADE] hasSetInitialRestartPoints:', hasSetInitialRestartPoints.value);
-      
-      // For restarted runs, NEVER replace allPoints, only append new ones
-      if (newPoints.length > 0) {
-        // Find new points that aren't already in allPoints
-        const existingPoints = allPoints.value.map(pt => `${pt.x},${pt.y},${pt.gpu},${pt.attn},${pt.sparse},${pt.conv}`);
-        const trulyNewPoints = newPoints.filter(pt => {
-          const pointKey = `${pt.x},${pt.y},${pt.gpu},${pt.attn},${pt.sparse},${pt.conv}`;
-          return !existingPoints.includes(pointKey);
-        });
-        
-        if (trulyNewPoints.length > 0) {
-          allPoints.value.push(...trulyNewPoints);
-          console.log(`[CASCADE] Added ${trulyNewPoints.length} new points to restarted run. Total points:`, allPoints.value.length);
-        } else {
-          console.log('[CASCADE] No truly new points to add (all were duplicates)');
-        }
-      } else {
-        console.log('[CASCADE] No new points from polling, preserving existing points');
-      }
-      
-      // Always update the chart after processing restarted run data
-      updateChart();
-      return; // Exit early to prevent normal processing
-    } else if (props.currentRunId && props.currentRunId.startsWith('pistil_run_')) {
-      // Special handling for Pistil GA runs - append new points incrementally
-      // First, filter out any old Pistil points from different runs
-      const currentRunPoints = allPoints.value.filter(pt => {
-        // Keep custom points
-        if (pt.type === 'custom' || pt.type === 'modified' || pt.source === 'Manual') {
-          return true;
-        }
-        // For Pistil points, only keep if they match the current run
-        // We can't directly check run_id on points, but we can check if they're from the current model
-        // and assume all Pistil points in allPoints are from the current run after clearing
-        return pt.model !== 'PISTIL' || true; // Keep all Pistil points (they should all be from current run after initial clear)
-      });
-      
-      // If we have new points and no existing Pistil points, this might be the first poll
-      // In that case, replace all points with new ones to ensure we only show current run
-      const hasExistingPistilPoints = currentRunPoints.some(pt => pt.model === 'PISTIL');
-      if (newPoints.length > 0 && !hasExistingPistilPoints) {
-        console.log('First poll for Pistil run - setting initial points');
-        allPoints.value = [...newPoints];
-        // Restore custom points
-        if (currentCustomPoints.length > 0) {
-          allPoints.value.push(...currentCustomPoints);
-        }
-        updateChart();
-        return;
-      }
-      
-      console.log('Pistil GA run mode - appending new points incrementally');
-      console.log('Current allPoints before processing:', allPoints.value.length);
-      console.log('New points from polling:', newPoints.length);
-      
-      if (newPoints.length > 0) {
-        // Find new points that aren't already in allPoints
-        // For Pistil, use a unique key based on design parameters
-        const existingPoints = allPoints.value.map(pt => {
-          if (pt.model === 'PISTIL') {
-            // Use Pistil-specific parameters for uniqueness
-            return `${pt.num_cus || ''},${pt.num_tmacs || ''},${pt.mem_buf_cap || ''},${pt.net_buf_cap || ''},${pt.mem_banks_per_group || ''},${pt.mem_ranks || ''},${pt.mem_frac_bank_cap || ''},${pt.batch_size || ''},${pt.kv_cache || ''}`;
-          } else {
-            // Fallback for non-Pistil points
-            return `${pt.x},${pt.y},${pt.gpu || ''},${pt.attn || ''},${pt.sparse || ''},${pt.conv || ''}`;
-          }
-        });
-        
-        const trulyNewPoints = newPoints.filter(pt => {
-          let pointKey;
-          if (pt.model === 'PISTIL') {
-            pointKey = `${pt.num_cus || ''},${pt.num_tmacs || ''},${pt.mem_buf_cap || ''},${pt.net_buf_cap || ''},${pt.mem_banks_per_group || ''},${pt.mem_ranks || ''},${pt.mem_frac_bank_cap || ''},${pt.batch_size || ''},${pt.kv_cache || ''}`;
-          } else {
-            pointKey = `${pt.x},${pt.y},${pt.gpu || ''},${pt.attn || ''},${pt.sparse || ''},${pt.conv || ''}`;
-          }
-          return !existingPoints.includes(pointKey);
-        });
-        
-        if (trulyNewPoints.length > 0) {
-          allPoints.value.push(...trulyNewPoints);
-          console.log(`Added ${trulyNewPoints.length} new Pistil points. Total points:`, allPoints.value.length);
-          updateChart();
-        } else {
-          console.log('No truly new Pistil points to add (all were duplicates)');
-        }
-      } else {
-        console.log('No new Pistil points from polling yet');
-      }
-      
-      // Restore custom points if any
-      if (currentCustomPoints.length > 0) {
-        const customInAllPoints = allPoints.value.some(pt => 
-          currentCustomPoints.some(customPt => 
-            Math.abs(customPt.x - pt.x) < 0.001 &&
-            Math.abs(customPt.y - pt.y) < 0.001
-          )
-        );
-        if (!customInAllPoints) {
-          allPoints.value.push(...currentCustomPoints);
-        }
-      }
-      
-      return; // Exit early to prevent normal processing
-    } else {
-      // Regular behavior for non-restarted, non-Pistil runs (CASCADE only)
-      // Skip this entirely if model is PISTIL
-      if (props.model === 'PISTIL') {
-        console.log('[PISTIL] Skipping CASCADE-specific update logic');
-        return;
-      }
-      
-      // For CASCADE, also append incrementally if it's a GA run
-      const isCascadeGA = !hasLoadedRunData.value && newPoints.length > 0 && 
-                          allPoints.value.length > 0 && 
-                          !props.currentRunId?.startsWith('restarted_run_') &&
-                          !props.currentRunId?.startsWith('pistil_run_');
-      
-      if (isCascadeGA) {
-        // For CASCADE GA runs, also append incrementally
-        console.log('[CASCADE] GA run mode - appending new points incrementally');
-        const existingPoints = allPoints.value.map(pt => `${pt.x},${pt.y},${pt.gpu},${pt.attn},${pt.sparse},${pt.conv}`);
-        const trulyNewPoints = newPoints.filter(pt => {
-          const pointKey = `${pt.x},${pt.y},${pt.gpu},${pt.attn},${pt.sparse},${pt.conv}`;
-          return !existingPoints.includes(pointKey);
-        });
-        
-        if (trulyNewPoints.length > 0) {
-          allPoints.value.push(...trulyNewPoints);
-          console.log(`[CASCADE] Added ${trulyNewPoints.length} new CASCADE points. Total points:`, allPoints.value.length);
-          updateChart();
-        }
-      } else {
-        // Only update if we have new data OR if this is not a loaded run
-        // This prevents clearing loaded run data when polling returns empty data
-        if (newPoints.length > 0 || !hasLoadedRunData.value) {
-          allPoints.value = newPoints;
-          // Restore custom points
-          if (currentCustomPoints.length > 0) {
-            allPoints.value.push(...currentCustomPoints);
-            console.log('[CASCADE] Restored custom points after normal update. Total points:', allPoints.value.length);
-          }
-          console.log('[CASCADE] Normal mode - Total points after update:', allPoints.value.length);
-          updateChart();
-        } else {
-          console.log('[CASCADE] Skipping update for loaded run with empty polling data');
-          console.log('[CASCADE] hasLoadedRunData.value:', hasLoadedRunData.value);
-          console.log('[CASCADE] newPoints.length:', newPoints.length);
-        }
-      }
+    updateAxesForModel(allPoints.value);
+    updateChart();
+    console.log('=== updateChartData END (Comparative) ===');
+    return;
+  }
+
+  // ============================================
+  // NORMAL MODE - Process new points array
+  // ============================================
+  
+  // Ensure we have an array to work with
+  if (!Array.isArray(newChartData)) {
+    console.log('newChartData is not an array, skipping update');
+    return;
+  }
+
+  const defaultAlgorithm = (newChartData.metadata?.algorithm) || lastAlgorithm.value || 'Genetic Algorithm';
+  
+  // Update lastAlgorithm if provided in metadata
+  if (newChartData.metadata?.algorithm) {
+    lastAlgorithm.value = newChartData.metadata.algorithm;
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem('lastAlgorithm', lastAlgorithm.value);
     }
   }
+
+  // Map new points and preserve custom point markers
+  const newPoints = newChartData.map(pt => {
+    // Check if this point matches any existing custom design point
+    const matchingCustom = currentCustomPoints.find(customPt => {
+      // For PISTIL points, match on PISTIL parameters
+      if (pt.model === 'PISTIL' || customPt.model === 'PISTIL') {
+        return (
+          pt.num_cus === customPt.num_cus &&
+          pt.num_tmacs === customPt.num_tmacs &&
+          pt.mem_buf_cap === customPt.mem_buf_cap &&
+          pt.batch_size === customPt.batch_size
+        );
+      }
+      // For CASCADE points, match on CASCADE parameters
+      return (
+        Math.abs((customPt.x || 0) - (pt.x || 0)) < 0.001 &&
+        Math.abs((customPt.y || 0) - (pt.y || 0)) < 0.001 &&
+        customPt.gpu === pt.gpu &&
+        customPt.attn === pt.attn &&
+        customPt.sparse === pt.sparse &&
+        customPt.conv === pt.conv
+      );
+    });
+
+    if (matchingCustom) {
+      return {
+        ...pt,
+        ...matchingCustom,
+        algorithm: matchingCustom.algorithm || 'Custom Design',
+        type: matchingCustom.type || 'custom',
+        source: matchingCustom.source || 'Manual',
+        label: matchingCustom.label || 'Custom Design',
+        trace: pt.trace || matchingCustom.trace || '',
+      };
+    } else {
+      return {
+        ...pt,
+        algorithm: pt.algorithm || defaultAlgorithm,
+        trace: pt.trace || '',
+      };
+    }
+  });
+
+  // Determine the current model
+  const currentModel = props.model || (newPoints.length > 0 && newPoints[0]?.model === 'PISTIL' ? 'PISTIL' : 'CASCADE');
+  const modelPrefix = currentModel === 'PISTIL' ? '[PISTIL]' : '[CASCADE]';
   
-  console.log('All points after update:', allPoints.value.length);
-  console.log('Sample points after update:', allPoints.value.slice(0, 2));
-  
-  // Update axes based on model type detected in data
-  updateAxesForModel(allPoints.value);
-  
-  updateChart();
-  console.log('=== updateChartData END ===');
+  console.log(`${modelPrefix} Processing ${newPoints.length} new points`);
+  if (newPoints.length > 0) {
+    console.log(`${modelPrefix} Sample point:`, newPoints[0]);
+  }
+
+  // ============================================
+  // PISTIL MODEL HANDLING
+  // ============================================
+  if (currentModel === 'PISTIL') {
+    console.log('[PISTIL] Using PISTIL update logic');
+    
+    if (newPoints.length === 0) {
+      console.log('[PISTIL] No new points received');
+      // Don't clear existing points if we receive empty data during polling
+      if (allPoints.value.length > 0) {
+        console.log('[PISTIL] Preserving existing points');
+        return;
+      }
+    }
+
+    // Check if we have existing PISTIL points
+    const existingPistilPoints = allPoints.value.filter(pt => pt.model === 'PISTIL');
+    console.log('[PISTIL] Existing PISTIL points:', existingPistilPoints.length);
+
+    // If no existing PISTIL points, this is first data load - replace all
+    if (existingPistilPoints.length === 0 && newPoints.length > 0) {
+      console.log('[PISTIL] First data load - setting initial points');
+      allPoints.value = [...newPoints];
+      if (currentCustomPoints.length > 0) {
+        allPoints.value.push(...currentCustomPoints);
+      }
+      updateAxesForModel(allPoints.value);
+      updateChart();
+      console.log('[PISTIL] Total points after initial load:', allPoints.value.length);
+      console.log('=== updateChartData END (PISTIL Initial) ===');
+      return;
+    }
+
+    // Incremental update - find truly new points
+    const existingKeys = new Set(allPoints.value.map(pt => {
+      if (pt.model === 'PISTIL') {
+        // Create unique key from PISTIL design parameters
+        return `PISTIL:${pt.num_cus}:${pt.num_tmacs}:${pt.mem_buf_cap}:${pt.net_buf_cap}:${pt.mem_banks_per_group}:${pt.mem_ranks}:${pt.mem_frac_bank_cap}:${pt.batch_size}:${pt.kv_cache}`;
+      }
+      // Fallback for other point types
+      return `OTHER:${pt.x}:${pt.y}:${pt.gpu}:${pt.attn}:${pt.sparse}:${pt.conv}`;
+    }));
+
+    const trulyNewPoints = newPoints.filter(pt => {
+      let key;
+      if (pt.model === 'PISTIL') {
+        key = `PISTIL:${pt.num_cus}:${pt.num_tmacs}:${pt.mem_buf_cap}:${pt.net_buf_cap}:${pt.mem_banks_per_group}:${pt.mem_ranks}:${pt.mem_frac_bank_cap}:${pt.batch_size}:${pt.kv_cache}`;
+      } else {
+        key = `OTHER:${pt.x}:${pt.y}:${pt.gpu}:${pt.attn}:${pt.sparse}:${pt.conv}`;
+      }
+      return !existingKeys.has(key);
+    });
+
+    console.log('[PISTIL] Truly new points to add:', trulyNewPoints.length);
+
+    if (trulyNewPoints.length > 0) {
+      allPoints.value.push(...trulyNewPoints);
+      console.log('[PISTIL] Total points after incremental update:', allPoints.value.length);
+    }
+
+    // Ensure custom points are preserved
+    currentCustomPoints.forEach(customPt => {
+      const alreadyExists = allPoints.value.some(pt =>
+        Math.abs((pt.x || 0) - (customPt.x || 0)) < 0.001 &&
+        Math.abs((pt.y || 0) - (customPt.y || 0)) < 0.001
+      );
+      if (!alreadyExists) {
+        allPoints.value.push(customPt);
+      }
+    });
+
+    updateAxesForModel(allPoints.value);
+    updateChart();
+    console.log('=== updateChartData END (PISTIL) ===');
+    return;
+  }
+
+  // ============================================
+  // CASCADE MODEL HANDLING
+  // ============================================
+  console.log('[CASCADE] Using CASCADE update logic');
+
+  const isRestartedRun = props.currentRunId?.startsWith('restarted_run_');
+  const isLoadedRun = newChartData.loaded_from_backup || hasLoadedRunData.value;
+
+  // Handle restarted runs - always append, never replace
+  if (isRestartedRun) {
+    console.log('[CASCADE] Restarted run mode');
+    console.log('[CASCADE] Current points:', allPoints.value.length);
+    console.log('[CASCADE] New points from polling:', newPoints.length);
+
+    if (newPoints.length > 0) {
+      const existingKeys = new Set(allPoints.value.map(pt => 
+        `${pt.x},${pt.y},${pt.gpu},${pt.attn},${pt.sparse},${pt.conv}`
+      ));
+      
+      const trulyNewPoints = newPoints.filter(pt => {
+        const key = `${pt.x},${pt.y},${pt.gpu},${pt.attn},${pt.sparse},${pt.conv}`;
+        return !existingKeys.has(key);
+      });
+
+      if (trulyNewPoints.length > 0) {
+        allPoints.value.push(...trulyNewPoints);
+        console.log(`[CASCADE] Added ${trulyNewPoints.length} new points. Total:`, allPoints.value.length);
+      } else {
+        console.log('[CASCADE] No truly new points (all duplicates)');
+      }
+    }
+
+    updateAxesForModel(allPoints.value);
+    updateChart();
+    console.log('=== updateChartData END (CASCADE Restarted) ===');
+    return;
+  }
+
+  // Handle incremental GA updates (when we already have points)
+  const shouldAppendIncrementally = !isLoadedRun && 
+                                     newPoints.length > 0 && 
+                                     allPoints.value.length > 0;
+
+  if (shouldAppendIncrementally) {
+    console.log('[CASCADE] Incremental GA update mode');
+    
+    const existingKeys = new Set(allPoints.value.map(pt => 
+      `${pt.x},${pt.y},${pt.gpu},${pt.attn},${pt.sparse},${pt.conv}`
+    ));
+    
+    const trulyNewPoints = newPoints.filter(pt => {
+      const key = `${pt.x},${pt.y},${pt.gpu},${pt.attn},${pt.sparse},${pt.conv}`;
+      return !existingKeys.has(key);
+    });
+
+    if (trulyNewPoints.length > 0) {
+      allPoints.value.push(...trulyNewPoints);
+      console.log(`[CASCADE] Added ${trulyNewPoints.length} new points. Total:`, allPoints.value.length);
+      updateAxesForModel(allPoints.value);
+      updateChart();
+    }
+    
+    console.log('=== updateChartData END (CASCADE Incremental) ===');
+    return;
+  }
+
+  // Handle normal replacement (fresh start or loaded run with new data)
+  if (newPoints.length > 0 || !isLoadedRun) {
+    console.log('[CASCADE] Normal replacement mode');
+    allPoints.value = newPoints;
+    
+    // Restore custom points
+    if (currentCustomPoints.length > 0) {
+      allPoints.value.push(...currentCustomPoints);
+      console.log('[CASCADE] Restored custom points. Total:', allPoints.value.length);
+    }
+    
+    console.log('[CASCADE] Total points after update:', allPoints.value.length);
+    updateAxesForModel(allPoints.value);
+    updateChart();
+  } else {
+    console.log('[CASCADE] Skipping update (loaded run with empty polling data)');
+  }
+
+  console.log('=== updateChartData END (CASCADE) ===');
 };
 
 const getChartData = () => {

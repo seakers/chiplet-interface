@@ -204,7 +204,7 @@ export default {
             console.log(`[DistanceCorrelation] CASCADE: "${objectiveName}" → "y" ✓`);
             return 'y';
           }
-        } else if (objectiveName.includes('time')) {
+        } else if (objectiveName.includes('Time')) {
           if (availableKeys.includes('x')) {
             console.log(`[DistanceCorrelation] CASCADE: "${objectiveName}" → "x" ✓`);
             return 'x';
