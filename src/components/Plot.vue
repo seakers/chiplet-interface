@@ -5,6 +5,35 @@ import { Chart, ScatterController, LinearScale, PointElement, Title, Tooltip } f
 import zoomPlugin from 'chartjs-plugin-zoom';
 import axios from "axios";
 
+function findGlobalIndex(point) {
+    if (!point) return -1;
+    return allPoints.value.findIndex(pt => {
+        if (!pt) return false;
+        const ptIsPistil = pt.model === 'PISTIL';
+        const pointIsPistil = point.model === 'PISTIL';
+        // Model types must match
+        if (ptIsPistil !== pointIsPistil) return false;
+        if (ptIsPistil) {
+            // Pistil: match on design parameters
+            return (pt.num_cus == point.num_cus) &&
+                   (pt.num_tmacs == point.num_tmacs) &&
+                   (pt.mem_buf_cap == point.mem_buf_cap) &&
+                   (pt.net_buf_cap == point.net_buf_cap) &&
+                   (pt.mem_banks_per_group == point.mem_banks_per_group) &&
+                   (pt.mem_ranks == point.mem_ranks) &&
+                   (pt.mem_frac_bank_cap == point.mem_frac_bank_cap) &&
+                   (pt.batch_size == point.batch_size) &&
+                   (pt.kv_cache == point.kv_cache);
+        } else {
+            // Cascade: match on chiplet counts
+            return (pt.gpu == point.gpu) &&
+                   (pt.attn == point.attn) &&
+                   (pt.sparse == point.sparse) &&
+                   (pt.conv == point.conv);
+        }
+    });
+}
+
 Chart.register(ScatterController, LinearScale, PointElement, Title, Tooltip, zoomPlugin);
 
 const chartRef = ref(null);
@@ -369,9 +398,16 @@ function getColorForPoint(point, pointIndex = null) {
   // Default: blue for optimization points
   if (point.algorithm && typeof point.algorithm === 'string') {
     const alg = point.algorithm.toLowerCase();
-    if (alg.includes('custom design')) return customColor; // Ensure custom designs stay purple
-    if (alg.includes('full-factorial')) return '#2ca02c'; // green distinct for Full-Factorial
-    if (alg.includes('genetic')) return '#1f77b4'; // blue for GA
+    if (alg.includes('deep rl') || alg.includes('ppo') || alg.includes('reinforcement')) 
+        return '#be741e'; // pink for Deep RL
+    if (alg.includes('chatbot') || alg.includes('chat')) 
+        return '#17cfb7'; // teal for chatbot-triggered
+    if (alg.includes('full-factorial')) 
+        return '#2ca02c'; // green (already there, but move it here for safety)
+    if (alg.includes('genetic')) 
+        return '#1f77b4'; // blue for GA
+    if (alg.includes('user'))
+        return '#881282'; // blue for GA
   }
   return palette[0];
 }
@@ -629,11 +665,7 @@ function buildChartData() {
             console.warn('backgroundColor called with undefined point in Run A');
             return '#cccccc';
           }
-          const globalIndex = allPoints.value.findIndex(pt => 
-            pt && pt.x === point.x && pt.y === point.y &&
-            pt.gpu === point.gpu && pt.attn === point.attn &&
-            pt.sparse === point.sparse && pt.conv === point.conv
-          );
+          const globalIndex = findGlobalIndex(point);
           return getColorForPoint(point, globalIndex);
         },
         borderColor: (context) => {
@@ -642,11 +674,7 @@ function buildChartData() {
             console.warn('borderColor called with undefined point in Run A');
             return '#cccccc';
           }
-          const globalIndex = allPoints.value.findIndex(pt => 
-            pt && pt.x === point.x && pt.y === point.y &&
-            pt.gpu === point.gpu && pt.attn === point.attn &&
-            pt.sparse === point.sparse && pt.conv === point.conv
-          );
+          const globalIndex = findGlobalIndex(point);
           return getColorForPoint(point, globalIndex);
         },
         pointRadius: 6,
@@ -666,11 +694,7 @@ function buildChartData() {
             console.warn('backgroundColor called with undefined point in Run B');
             return '#cccccc';
           }
-          const globalIndex = allPoints.value.findIndex(pt => 
-            pt && pt.x === point.x && pt.y === point.y &&
-            pt.gpu === point.gpu && pt.attn === point.attn &&
-            pt.sparse === point.sparse && pt.conv === point.conv
-          );
+          const globalIndex = findGlobalIndex(point);
           return getColorForPoint(point, globalIndex);
         },
         borderColor: (context) => {
@@ -679,11 +703,7 @@ function buildChartData() {
             console.warn('borderColor called with undefined point in Run B');
             return '#cccccc';
           }
-          const globalIndex = allPoints.value.findIndex(pt => 
-            pt && pt.x === point.x && pt.y === point.y &&
-            pt.gpu === point.gpu && pt.attn === point.attn &&
-            pt.sparse === point.sparse && pt.conv === point.conv
-          );
+          const globalIndex = findGlobalIndex(point);
           return getColorForPoint(point, globalIndex);
         },
         pointRadius: 6,
@@ -703,8 +723,9 @@ function buildChartData() {
     const normalOptimization = [];
     
     optimizationPoints.forEach((pt, i) => {
-      const globalIndex = allPoints.value.indexOf(pt);
-      const isHighlighted = highlightedPoints.value.includes(globalIndex);
+      const globalIndex = findGlobalIndex(pt)
+      const highlightedArr = [...highlightedPoints.value]; // unwrap proxy
+      const isHighlighted = globalIndex !== -1 && highlightedArr.includes(globalIndex);
       console.log(`Optimization point ${i}: globalIndex=${globalIndex}, isHighlighted=${isHighlighted}, highlightedPoints=${highlightedPoints.value}`);
       
       if (isHighlighted) {
@@ -745,11 +766,7 @@ function buildChartData() {
             console.warn('backgroundColor called with undefined point');
             return '#cccccc';
           }
-          const globalIndex = allPoints.value.findIndex(pt => 
-            pt && pt.x === point.x && pt.y === point.y &&
-            pt.gpu === point.gpu && pt.attn === point.attn &&
-            pt.sparse === point.sparse && pt.conv === point.conv
-          );
+          const globalIndex = findGlobalIndex(point);
           return getColorForPoint(point, globalIndex);
         },
         borderColor: (context) => {
@@ -758,11 +775,7 @@ function buildChartData() {
             console.warn('borderColor called with undefined point');
             return '#cccccc';
           }
-          const globalIndex = allPoints.value.findIndex(pt => 
-            pt && pt.x === point.x && pt.y === point.y &&
-            pt.gpu === point.gpu && pt.attn === point.attn &&
-            pt.sparse === point.sparse && pt.conv === point.conv
-          );
+          const globalIndex = findGlobalIndex(point);
           return getColorForPoint(point, globalIndex);
         },
         pointRadius: 6,
@@ -798,11 +811,7 @@ function buildChartData() {
             console.warn('backgroundColor called with undefined point');
             return '#cccccc';
           }
-          const globalIndex = allPoints.value.findIndex(pt => 
-            pt && pt.x === point.x && pt.y === point.y &&
-            pt.gpu === point.gpu && pt.attn === point.attn &&
-            pt.sparse === point.sparse && pt.conv === point.conv
-          );
+          const globalIndex = findGlobalIndex(point);
           return getColorForPoint(point, globalIndex);
         },
         borderColor: (context) => {
@@ -811,13 +820,11 @@ function buildChartData() {
             console.warn('borderColor called with undefined point');
             return '#cccccc';
           }
-          const globalIndex = allPoints.value.findIndex(pt => 
-            pt && pt.x === point.x && pt.y === point.y &&
-            pt.gpu === point.gpu && pt.attn === point.attn &&
-            pt.sparse === point.sparse && pt.conv === point.conv
-          );
+          const globalIndex = findGlobalIndex(point);
           // Draw yellow border on highlighted point itself
-          return highlightedPoints.value.includes(globalIndex) ? highlightColor : getColorForPoint(point, globalIndex);
+          const highlightedArr = [...highlightedPoints.value]; // unwrap proxy
+          const isHighlighted = globalIndex !== -1 && highlightedArr.includes(globalIndex);
+          return isHighlighted ? highlightColor : getColorForPoint(point, globalIndex);
         },
         pointRadius: 6,
         pointBorderWidth: 3,
@@ -831,8 +838,9 @@ function buildChartData() {
     datasets.push({
       label: 'Custom Design',
       data: customPoints.map((pt, i) => {
-        const globalIndex = allPoints.value.indexOf(pt);
-        const isHighlighted = highlightedPoints.value.includes(globalIndex);
+        const globalIndex = findGlobalIndex(pt);
+        const highlightedArr = [...highlightedPoints.value]; // unwrap proxy
+        const isHighlighted = globalIndex !== -1 && highlightedArr.includes(globalIndex);
         console.log('Custom point data:', pt);
         return {
           ...pt,
@@ -848,12 +856,9 @@ function buildChartData() {
           console.warn('backgroundColor called with undefined point');
           return '#cccccc';
         }
-        const globalIndex = allPoints.value.findIndex(pt => 
-          pt && pt.x === point.x && pt.y === point.y &&
-          pt.gpu === point.gpu && pt.attn === point.attn &&
-          pt.sparse === point.sparse && pt.conv === point.conv
-        );
-        const isHighlighted = highlightedPoints.value.includes(globalIndex);
+        const globalIndex = findGlobalIndex(point);
+        const highlightedArr = [...highlightedPoints.value]; // unwrap proxy
+        const isHighlighted = globalIndex !== -1 && highlightedArr.includes(globalIndex);
         return isHighlighted ? highlightColor : customColor; // Always purple unless highlighted
       },
       borderColor: (context) => {
@@ -862,12 +867,9 @@ function buildChartData() {
           console.warn('borderColor called with undefined point');
           return '#cccccc';
         }
-        const globalIndex = allPoints.value.findIndex(pt => 
-          pt && pt.x === point.x && pt.y === point.y &&
-          pt.gpu === point.gpu && pt.attn === point.attn &&
-          pt.sparse === point.sparse && pt.conv === point.conv
-        );
-        const isHighlighted = highlightedPoints.value.includes(globalIndex);
+        const globalIndex = findGlobalIndex(point);
+        const highlightedArr = [...highlightedPoints.value]; // unwrap proxy
+        const isHighlighted = globalIndex !== -1 && highlightedArr.includes(globalIndex);
         return isHighlighted ? highlightColor : customColor; // Always purple unless highlighted
       },
       pointRadius: 6, // Same size as GA points
@@ -1025,6 +1027,7 @@ const createChart = () => {
                   if (ptIsPistil !== dataIsPistil) return false;
                   
                   if (ptIsPistil || dataIsPistil) {
+                    console.log('[PLOT] Got here qwe')
                     // Pistil points: match on key Pistil parameters (use loose equality for undefined)
                     return (pt.num_cus == pointData.num_cus) &&
                            (pt.num_tmacs == pointData.num_tmacs) &&
@@ -1061,14 +1064,33 @@ const createChart = () => {
                     emit('point-selected', pt);
                     (async () => {
                       try {
-                        const params = {
-                          exe: pt?.x ?? '',
-                          energy: pt?.y ?? '',
-                          gpu: pt?.gpu ?? 0,
-                          attn: pt?.attn ?? 0,
-                          sparse: pt?.sparse ?? 0,
-                          conv: pt?.conv ?? 0,
-                        };
+                        let params;
+                        if (pt?.model === 'PISTIL') {
+                          params = {
+                            model: 'PISTIL',
+                            num_cus: pt?.num_cus ?? '',
+                            num_tmacs: pt?.num_tmacs ?? '',
+                            mem_buf_cap: pt?.mem_buf_cap ?? '',
+                            net_buf_cap: pt?.net_buf_cap ?? '',
+                            mem_banks_per_group: pt?.mem_banks_per_group ?? '',
+                            mem_ranks: pt?.mem_ranks ?? '',
+                            mem_frac_bank_cap: pt?.mem_frac_bank_cap ?? '',
+                            batch_size: pt?.batch_size ?? '',
+                            kv_cache: pt?.kv_cache ?? '',
+                            latency_per_token_ms: pt?.latency_per_token_ms ?? '',
+                            energy_per_inference_mJ: pt?.energy_per_inference_mJ ?? '',
+                          };
+                        } else {
+                          params = {
+                            model: 'CASCADE',
+                            exe: pt?.x ?? '',
+                            energy: pt?.y ?? '',
+                            gpu: pt?.gpu ?? 0,
+                            attn: pt?.attn ?? 0,
+                            sparse: pt?.sparse ?? 0,
+                            conv: pt?.conv ?? 0,
+                          };
+                        }
                         await axios.get("http://127.0.0.1:8000/add-info/", { params });
                         console.log("Sent design info to backend:", params);
                       } catch (err) {
@@ -1676,37 +1698,37 @@ const selectPoint = (pointIndex) => {
 };
 
 // Method to highlight points based on constraint data
-const highlightPointsByConstraint = (highlightingData) => {
+const highlightPointsByConstraint = async (highlightingData) => {
   console.log('Plot: highlightPointsByConstraint called with:', highlightingData);
-  console.log('Plot: highlightingData type:', typeof highlightingData);
-  console.log('Plot: highlightingData keys:', Object.keys(highlightingData || {}));
-  
+
   if (highlightingData && highlightingData.highlighted_points) {
     console.log('Plot: highlighted_points array length:', highlightingData.highlighted_points.length);
-    console.log('Plot: First few highlighted_points:', highlightingData.highlighted_points.slice(0, 3));
-    
-    // Extract indices of highlighted points
+
     const highlightedIndices = highlightingData.highlighted_points
-      .map((point, index) => {
-        console.log(`Plot: Point ${index}:`, point);
-        return point.highlighted ? index : -1;
+      .filter(point => point.highlighted)
+      .map(point => {
+        const idx = findGlobalIndex(point);
+        if (idx === -1) {
+          console.warn('Plot: Could not match highlighted point:', point);
+        }
+        return idx;
       })
       .filter(index => index !== -1);
-    
+
+    // CHANGE: Explicitly clear first, then set in next tick
+    // This forces Vue to react to both the clear and the new value
+    highlightedPoints.value = [];          // ← Force clear first
+
+    await nextTick();                      // ← Wait for DOM to process the clear
+
+    highlightedPoints.value = [...highlightedIndices];   // ← Then set new values
+
     console.log('Plot: Setting highlighted points to:', highlightedIndices);
-    console.log('Plot: Current allPoints length:', allPoints.value.length);
-    highlightedPoints.value = highlightedIndices;
-    
-    // Refresh the chart to show highlighting
+
     if (chartInstance) {
-      console.log('Plot: Updating chart with highlighting');
       chartInstance.data.datasets = buildChartData();
       chartInstance.update();
-    } else {
-      console.log('Plot: No chart instance available');
     }
-  } else {
-    console.log('Plot: No highlighting data or highlighted_points array');
   }
 };
 

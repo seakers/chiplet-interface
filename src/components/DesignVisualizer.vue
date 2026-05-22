@@ -12,133 +12,190 @@
     <div v-if="currentPoint" class="visualizer-content">
       <!-- Show both states when they're different -->
       <div v-if="showBothStates" class="dual-state-info">
-        <div class="state-comparison">
-          <div class="selected-info">
-            <h4>Selected Design</h4>
-            <div class="info-grid">
-              <div class="info-item">
-                <span class="info-label">Execution Time:</span>
-                <span class="info-value">{{ formatValue(selectedPoint.x) }} ms</span>
+          <div class="state-comparison">
+              <div class="selected-info">
+                  <h4>Selected Design</h4>
+                  <div class="info-grid">
+                      <template v-if="isPistilPoint">
+                          <div class="info-item">
+                              <span class="info-label">{{ selectedXAxis || 'Latency per Token (ms)' }}:</span>
+                              <span class="info-value">{{ formatValue(selectedPoint.x) }}</span>
+                          </div>
+                          <div class="info-item">
+                              <span class="info-label">{{ selectedYAxis || 'Energy per Inference (mJ)' }}:</span>
+                              <span class="info-value">{{ formatValue(selectedPoint.y) }}</span>
+                          </div>
+                          <div class="info-item" v-if="selectedPoint.num_cus !== undefined">
+                              <span class="info-label">CUs:</span>
+                              <span class="info-value">{{ selectedPoint.num_cus }}</span>
+                          </div>
+                          <div class="info-item" v-if="selectedPoint.batch_size !== undefined">
+                              <span class="info-label">Batch Size:</span>
+                              <span class="info-value">{{ selectedPoint.batch_size }}</span>
+                          </div>
+                      </template>
+                      <template v-else>
+                          <div class="info-item">
+                              <span class="info-label">Execution Time:</span>
+                              <span class="info-value">{{ formatValue(selectedPoint.x) }} ms</span>
+                          </div>
+                          <div class="info-item">
+                              <span class="info-label">Energy:</span>
+                              <span class="info-value">{{ formatValue(selectedPoint.y) }} mJ</span>
+                          </div>
+                      </template>
+                  </div>
               </div>
-              <div class="info-item">
-                <span class="info-label">Energy:</span>
-                <span class="info-value">{{ formatValue(selectedPoint.y) }} mJ</span>
+              <div class="hovered-info">
+                  <h4>Hovered Design</h4>
+                  <div class="info-grid">
+                      <template v-if="isPistilPoint">
+                          <div class="info-item">
+                              <span class="info-label">{{ selectedXAxis || 'Latency per Token (ms)' }}:</span>
+                              <span class="info-value">{{ formatValue(hoveredPoint.x) }}</span>
+                          </div>
+                          <div class="info-item">
+                              <span class="info-label">{{ selectedYAxis || 'Energy per Inference (mJ)' }}:</span>
+                              <span class="info-value">{{ formatValue(hoveredPoint.y) }}</span>
+                          </div>
+                          <div class="info-item" v-if="hoveredPoint.num_cus !== undefined">
+                              <span class="info-label">CUs:</span>
+                              <span class="info-value">{{ hoveredPoint.num_cus }}</span>
+                          </div>
+                          <div class="info-item" v-if="hoveredPoint.batch_size !== undefined">
+                              <span class="info-label">Batch Size:</span>
+                              <span class="info-value">{{ hoveredPoint.batch_size }}</span>
+                          </div>
+                      </template>
+                      <template v-else>
+                          <div class="info-item">
+                              <span class="info-label">Execution Time:</span>
+                              <span class="info-value">{{ formatValue(hoveredPoint.x) }} ms</span>
+                          </div>
+                          <div class="info-item">
+                              <span class="info-label">Energy:</span>
+                              <span class="info-value">{{ formatValue(hoveredPoint.y) }} mJ</span>
+                          </div>
+                      </template>
+                  </div>
               </div>
-            </div>
           </div>
-          <div class="hovered-info">
-            <h4>Hovered Design</h4>
-            <div class="info-grid">
-              <div class="info-item">
-                <span class="info-label">Execution Time:</span>
-                <span class="info-value">{{ formatValue(hoveredPoint.x) }} ms</span>
-              </div>
-              <div class="info-item">
-                <span class="info-label">Energy:</span>
-                <span class="info-value">{{ formatValue(hoveredPoint.y) }} mJ</span>
-              </div>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- Show selected vs custom design comparison -->
       <div v-else-if="showSelectedVsCustom" class="dual-state-info">
-        <div class="selected-info">
-          <h4>Selected Design</h4>
-          <div class="chiplet-details">
-            <div class="chiplet-item">
-              <span class="chiplet-label">GPU:</span>
-              <span class="chiplet-value">{{ selectedPoint.gpu }}</span>
-            </div>
-            <div class="chiplet-item">
-              <span class="chiplet-label">Attention:</span>
-              <span class="chiplet-value">{{ selectedPoint.attn }}</span>
-            </div>
-            <div class="chiplet-item">
-              <span class="chiplet-label">Sparse:</span>
-              <span class="chiplet-value">{{ selectedPoint.sparse }}</span>
-            </div>
-            <div class="chiplet-item">
-              <span class="chiplet-label">Convolution:</span>
-              <span class="chiplet-value">{{ selectedPoint.conv }}</span>
-            </div>
+          <div class="selected-info">
+              <h4>Selected Design</h4>
+              <template v-if="isPistilPoint">
+                  <div class="design-parameters-list">
+                      <div class="parameter-item" v-if="selectedPoint.num_cus !== undefined">
+                          <span class="parameter-label">Number of CUs:</span>
+                          <span class="parameter-value">{{ selectedPoint.num_cus }}</span>
+                      </div>
+                      <div class="parameter-item" v-if="selectedPoint.num_tmacs !== undefined">
+                          <span class="parameter-label">Number of TMACs:</span>
+                          <span class="parameter-value">{{ selectedPoint.num_tmacs }}</span>
+                      </div>
+                      <div class="parameter-item" v-if="selectedPoint.mem_buf_cap !== undefined">
+                          <span class="parameter-label">Memory Buffer Cap:</span>
+                          <span class="parameter-value">{{ selectedPoint.mem_buf_cap }} GB</span>
+                      </div>
+                      <div class="parameter-item" v-if="selectedPoint.batch_size !== undefined">
+                          <span class="parameter-label">Batch Size:</span>
+                          <span class="parameter-value">{{ selectedPoint.batch_size }}</span>
+                      </div>
+                  </div>
+                  <div class="performance-metrics">
+                      <div class="metric">
+                          <span class="metric-label">{{ selectedXAxis || 'Latency per Token' }}:</span>
+                          <span class="metric-value">{{ formatValue(selectedPoint.x) }}</span>
+                      </div>
+                      <div class="metric">
+                          <span class="metric-label">{{ selectedYAxis || 'Energy per Inference' }}:</span>
+                          <span class="metric-value">{{ formatValue(selectedPoint.y) }}</span>
+                      </div>
+                  </div>
+              </template>
+              <template v-else>
+                  <div class="chiplet-details">
+                      <div class="chiplet-item">
+                          <span class="chiplet-label">GPU:</span>
+                          <span class="chiplet-value">{{ selectedPoint.gpu }}</span>
+                      </div>
+                      <div class="chiplet-item">
+                          <span class="chiplet-label">Attention:</span>
+                          <span class="chiplet-value">{{ selectedPoint.attn }}</span>
+                      </div>
+                      <div class="chiplet-item">
+                          <span class="chiplet-label">Sparse:</span>
+                          <span class="chiplet-value">{{ selectedPoint.sparse }}</span>
+                      </div>
+                      <div class="chiplet-item">
+                          <span class="chiplet-label">Convolution:</span>
+                          <span class="chiplet-value">{{ selectedPoint.conv }}</span>
+                      </div>
+                  </div>
+                  <div class="performance-metrics">
+                      <div class="metric">
+                          <span class="metric-label">Execution Time:</span>
+                          <span class="metric-value">{{ selectedPoint.x?.toFixed(2) }} ms</span>
+                      </div>
+                      <div class="metric">
+                          <span class="metric-label">Energy:</span>
+                          <span class="metric-value">{{ selectedPoint.y?.toFixed(2) }} mJ</span>
+                      </div>
+                  </div>
+              </template>
           </div>
-          <div class="performance-metrics">
-            <div class="metric">
-              <span class="metric-label">Execution Time:</span>
-              <span class="metric-value">{{ selectedPoint.x?.toFixed(2) }} ms</span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Energy:</span>
-              <span class="metric-value">{{ selectedPoint.y?.toFixed(2) }} mJ</span>
-            </div>
+          <div class="custom-info">
+              <h4>Custom Design <span class="status-badge custom" :class="{ saved: customPoint?.saved }">{{ customPoint?.saved ? 'Saved' : 'New' }}</span></h4>
+              <!-- Pistil custom editing not yet supported — show read-only -->
+              <template v-if="isPistilPoint">
+                  <div class="design-parameters-list">
+                      <div class="parameter-item">
+                          <span class="parameter-label">{{ selectedXAxis || 'Latency per Token' }}:</span>
+                          <span class="parameter-value">{{ formatValue(customPoint?.x) }}</span>
+                      </div>
+                      <div class="parameter-item">
+                          <span class="parameter-label">{{ selectedYAxis || 'Energy per Inference' }}:</span>
+                          <span class="parameter-value">{{ formatValue(customPoint?.y) }}</span>
+                      </div>
+                  </div>
+              </template>
+              <template v-else>
+                  <div class="chiplet-details">
+                      <div class="chiplet-item">
+                          <span class="chiplet-label">GPU:</span>
+                          <input v-model.number="customChiplets.gpu" type="number" min="0" max="12" class="chiplet-input" />
+                      </div>
+                      <div class="chiplet-item">
+                          <span class="chiplet-label">Attention:</span>
+                          <input v-model.number="customChiplets.attn" type="number" min="0" max="12" class="chiplet-input" />
+                      </div>
+                      <div class="chiplet-item">
+                          <span class="chiplet-label">Sparse:</span>
+                          <input v-model.number="customChiplets.sparse" type="number" min="0" max="12" class="chiplet-input" />
+                      </div>
+                      <div class="chiplet-item">
+                          <span class="chiplet-label">Convolution:</span>
+                          <input v-model.number="customChiplets.conv" type="number" min="0" max="12" class="chiplet-input" />
+                      </div>
+                  </div>
+                  <div class="performance-metrics">
+                      <div class="metric">
+                          <span class="metric-label">Execution Time:</span>
+                          <span class="metric-value">{{ customPoint?.x?.toFixed(2) }} ms</span>
+                      </div>
+                      <div class="metric">
+                          <span class="metric-label">Energy:</span>
+                          <span class="metric-value">{{ customPoint?.y?.toFixed(2) }} mJ</span>
+                      </div>
+                  </div>
+                  <div class="action-buttons">
+                      <button @click="evaluateDesign" class="evaluate-btn">Evaluate Design</button>
+                  </div>
+              </template>
           </div>
-        </div>
-        
-        <div class="custom-info">
-          <h4>Custom Design <span class="status-badge custom" :class="{ saved: customPoint?.saved }">{{ customPoint?.saved ? 'Saved' : 'New' }}</span></h4>
-          <div class="chiplet-details">
-            <div class="chiplet-item">
-              <span class="chiplet-label">GPU:</span>
-              <input 
-                v-model.number="customChiplets.gpu" 
-                type="number" 
-                min="0" 
-                max="12" 
-                class="chiplet-input"
-              />
-            </div>
-            <div class="chiplet-item">
-              <span class="chiplet-label">Attention:</span>
-              <input 
-                v-model.number="customChiplets.attn" 
-                type="number" 
-                min="0" 
-                max="12" 
-                class="chiplet-input"
-              />
-            </div>
-            <div class="chiplet-item">
-              <span class="chiplet-label">Sparse:</span>
-              <input 
-                v-model.number="customChiplets.sparse" 
-                type="number" 
-                min="0" 
-                max="12" 
-                class="chiplet-input"
-              />
-            </div>
-            <div class="chiplet-item">
-              <span class="chiplet-label">Convolution:</span>
-              <input 
-                v-model.number="customChiplets.conv" 
-                type="number" 
-                min="0" 
-                max="12" 
-                class="chiplet-input"
-              />
-            </div>
-          </div>
-          <div class="performance-metrics">
-            <div class="metric">
-              <span class="metric-label">Execution Time:</span>
-              <span class="metric-value">{{ customPoint?.x?.toFixed(2) }} ms</span>
-            </div>
-            <div class="metric">
-              <span class="metric-label">Energy:</span>
-              <span class="metric-value">{{ customPoint?.y?.toFixed(2) }} mJ</span>
-            </div>
-          </div>
-          <div class="action-buttons">
-            <button 
-              @click="evaluateDesign" 
-              class="evaluate-btn"
-            >
-              Evaluate Design
-            </button>
-          </div>
-        </div>
       </div>
 
       <!-- Show single design info when only one state is active -->
@@ -372,19 +429,19 @@
         </template>
       </div>
 
-      <!-- Actions Section (only for selected designs) -->
-      <div v-if="isSelected" class="actions-section">
-        <h4>Actions</h4>
-        <div class="action-buttons">
-          <button 
-            class="btn btn-primary" 
-            @click="evaluateDesign"
-            :disabled="!hasChanges || totalChiplets > 12 || totalChiplets < 12"
-            :title="getEvaluateButtonTitle()"
-          >
-            Evaluate Design
-          </button>
-        </div>
+      <!-- Actions Section (only for selected CASCADE designs — Pistil editing not yet supported) -->
+      <div v-if="isSelected && !isPistilPoint" class="actions-section">
+          <h4>Actions</h4>
+          <div class="action-buttons">
+              <button
+                  class="btn btn-primary"
+                  @click="evaluateDesign"
+                  :disabled="!hasChanges || totalChiplets > 12 || totalChiplets < 12"
+                  :title="getEvaluateButtonTitle()"
+              >
+                  Evaluate Design
+              </button>
+          </div>
       </div>
     </div>
 
@@ -420,6 +477,10 @@ export default {
     selectedYAxis: {
       type: String,
       default: ''
+    },
+    selectedModel: {          // ADD THIS
+      type: String,
+      default: null
     }
   },
   emits: ['evaluate-design'],
@@ -450,7 +511,10 @@ export default {
       return this.hoveredPoint !== null && this.hoveredPoint !== this.selectedPoint;
     },
     isPistilPoint() {
-      return this.currentPoint && this.currentPoint.model === 'PISTIL';
+        // Check point data first, then fall back to selectedModel prop
+        if (this.currentPoint && this.currentPoint.model === 'PISTIL') return true;
+        if (this.selectedModel === 'PISTIL') return true;
+        return false;
     },
     showBothStates() {
       return this.selectedPoint !== null && this.hoveredPoint !== null && this.hoveredPoint !== this.selectedPoint;

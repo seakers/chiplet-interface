@@ -124,12 +124,13 @@
 
           <!-- Design Visualizer Section -->
           <div class="design-visualizer-section" v-if="!isComparativeAnalysisActive">
-            <DesignVisualizer 
+            <DesignVisualizer
               :hoveredPoint="hoveredPoint"
               :selectedPoint="selectedPoint"
               :customPoint="customPoint"
               :selectedXAxis="getSelectedAxes().x"
               :selectedYAxis="getSelectedAxes().y"
+              :selectedModel="selectedModel"
               @evaluate-design="handleEvaluateDesign"
               @point-selected="handlePointSelected"
               @point-hovered="handlePointHovered"
@@ -138,13 +139,16 @@
           
           <!-- Data Mining Section -->
           <div class="data-mining-section" v-if="!isComparativeAnalysisActive && openWindows.DataMining">
-            <DataMining 
-              :filePath="currentFilePath"
-              :selectedModel="selectedModel"
-              :currentRunId="currentRunId"
-              @close="closeWindow('DataMining')"
-              @send-insights-to-chat="handleSendInsightsToChat"
-            />
+          <DataMining 
+            :filePath="currentFilePath"
+            :selectedModel="selectedModel"
+            :currentRunId="currentRunId"
+            :agentDcorrData="agentDcorrData"
+            :agentRuleMiningData="agentRuleMiningData"
+            @close="closeWindow('DataMining')"
+            @send-insights-to-chat="handleSendInsightsToChat"
+            @agent-data-consumed="agentDcorrData = null; agentRuleMiningData = null"
+          />
           </div>
           
           <!-- Docked windows area: always rendered -->
@@ -173,13 +177,15 @@
         <!-- RIGHT COLUMN (Chat) -->
         <div class="right-col">
           <div class="chat-scroll-wrap">
-            <Chat ref="Chat" 
+          <Chat ref="Chat" 
               :chatOpen="true" 
               :selectedModel="selectedModel"
               :run_id="currentRunId"
               @highlighting-response="handleHighlightingResponse" 
-              @run-id-updated="handleRunIdUpdated" 
-            />
+              @run-id-updated="handleRunIdUpdated"
+              @agent-dcorr-update="handleAgentDcorrUpdate"
+              @agent-rule-mining-update="handleAgentRuleMiningUpdate"
+          />
           </div>
         </div>
       </div>
@@ -247,7 +253,9 @@ export default {
         timeMax: null
       },
       paretoRanks: [1],
-      selectedModel: null  // Track selected model - starts as null until user selects
+      selectedModel: null,  // Track selected model - starts as null until user selects
+      agentDcorrData: null,
+      agentRuleMiningData: null,
     };
   },
   watch: {
@@ -719,6 +727,44 @@ export default {
       this.selectedModel = model;
       console.log(`[App.vue] Updated selectedModel to ${model}. Plot will start polling.`);
     },
+    handleAgentDcorrUpdate(dcorrData) {
+      console.log('App.vue: Agent triggered distance correlation update:', dcorrData);
+      this.agentDcorrData = null;
+      
+      // Auto-open DataMining window
+      if (!this.openWindows.DataMining) {
+        this.openWindows.DataMining = true;
+      }
+      
+      // Tell DataMining to show distance correlation with new data
+      this.$nextTick(() => {
+        if (this.$refs.DataMining) {
+          // If DataMining is rendered as a child inside the section
+          // We need a way to pass data to it — use a reactive prop
+        }
+        this.agentDcorrData = dcorrData
+      });
+      
+      // Store data for DataMining to pick up
+      // this.agentDcorrData = dcorrData;
+    },
+
+    handleAgentRuleMiningUpdate(ruleMiningData) {
+      console.log('App.vue: Agent triggered rule mining update:', ruleMiningData);
+      this.agentRuleMiningData = null;
+
+      // Auto-open DataMining window  
+      if (!this.openWindows.DataMining) {
+        this.openWindows.DataMining = true;
+      }
+
+      this.$nextTick(() => {
+        this.agentRuleMiningData = ruleMiningData;
+      });
+      
+      // Store data for DataMining to pick up
+      // this.agentRuleMiningData = ruleMiningData;
+    },
     getSelectedModel() {
       // Return the reactive selectedModel property
       // This is updated when user selects a model via handleModelSelected
@@ -735,22 +781,16 @@ export default {
       return null;  // No model selected yet - don't start polling
     },
     getSelectedAxes() {
-      // Get selected axes from Plot component
-      // Note: Plot uses <script setup> so we need to access via exposed properties
-      // For now, try to access the refs directly - if Plot exposes them
-      if (this.$refs.Plot) {
-        // Try accessing the refs (Plot uses script setup, so these might not be directly accessible)
-        // We'll need to expose them from Plot or use a different approach
-        const plotRef = this.$refs.Plot;
-        // Since Plot uses script setup, we can't directly access refs
-        // Instead, we'll use a computed property that watches the Plot's internal state
-        // For now, return defaults - we'll need to expose these from Plot component
-        return {
-          x: plotRef?.selectedXAxis || 'Total time (ms)',
-          y: plotRef?.selectedYAxis || 'Total Energy (mJ)'
-        };
-      }
-      return { x: 'Total time (ms)', y: 'Total Energy (mJ)' };
+        if (this.$refs.Plot) {
+            const plotRef = this.$refs.Plot;
+            return {
+                x: plotRef?.selectedXAxis || (this.selectedModel === 'PISTIL' ? 'Latency per Token (ms)' : 'Total time (ms)'),
+                y: plotRef?.selectedYAxis || (this.selectedModel === 'PISTIL' ? 'Energy per Inference (mJ)' : 'Total Energy (mJ)')
+            };
+        }
+        return this.selectedModel === 'PISTIL'
+            ? { x: 'Latency per Token (ms)', y: 'Energy per Inference (mJ)' }
+            : { x: 'Total time (ms)', y: 'Total Energy (mJ)' };
     },
     handlePointSelected(point) {
       console.log('App.vue: handlePointSelected called with:', point);
@@ -771,6 +811,11 @@ export default {
       console.log('App.vue: handleEvaluateDesign called with:', modifiedDesign);
       
       try {
+        if (modifiedDesign.model === 'PISTIL' || this.selectedModel === 'PISTIL') {
+            // TODO: Implement Pistil evaluation endpoint
+            console.warn('Pistil custom design evaluation not yet implemented');
+            return;
+        }
         // Get the current trace (use default if not available)
         const trace = this.currentRunId ? 'gpt-j-65536-weighted' : 'gpt-j-65536-weighted';
         console.log('Evaluating modified design with trace:', trace);
@@ -870,11 +915,13 @@ export default {
       }
     },
     async sendPointContextToChat(point) {
-      console.log("sending data from frontent")
       try {
-        // Prepare the summary context data
-        const summaryInsights = `Selected design point: Execution Time: ${point.x}ms, Energy: ${point.y}mJ, GPU: ${point.gpu || 0}, Attention: ${point.attn || 0}, Sparse: ${point.sparse || 0}, Convolution: ${point.conv || 0}`;
-        
+        let summaryInsights;
+        if (point.model === 'PISTIL' || this.selectedModel === 'PISTIL') {
+            summaryInsights = `Selected PISTIL design point: CUs: ${point.num_cus || 0}, TMACs: ${point.num_tmacs || 0}, Mem Buffer: ${point.mem_buf_cap || 0}GB, Batch Size: ${point.batch_size || 0}, Latency/Token: ${point.latency_per_token_ms || point.x || 0}ms, Energy/Inference: ${point.energy_per_inference_mJ || point.y || 0}mJ`;
+        } else {
+            summaryInsights = `Selected design point: Execution Time: ${point.x}ms, Energy: ${point.y}mJ, GPU: ${point.gpu || 0}, Attention: ${point.attn || 0}, Sparse: ${point.sparse || 0}, Convolution: ${point.conv || 0}`;
+        }
         // Try to fetch detailed context if we have a run ID
         let detailedContext = null;
         if (this.currentRunId) {

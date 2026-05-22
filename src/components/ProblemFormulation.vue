@@ -651,9 +651,7 @@ export default {
       this.currentRunId = ''; // Reset run ID
       
       // Stop any existing Pistil GA status check if starting a new run
-      if (this.selectedModel === 'PISTIL' && this.selectedAlgorithm === 'Genetic Algorithm') {
-        this.stopPistilGAStatusCheck();
-      }
+      this.stopPistilGAStatusCheck();
       
       // CRITICAL: Ensure algorithm is explicitly set based on user selection
       const selectedAlgorithm = this.selectedAlgorithm || 'Genetic Algorithm';
@@ -666,6 +664,7 @@ export default {
         traces: this.traceWeights.map(tw => ({ name: tw.name, weight: tw.weight })),
         population_size: this.populationSize,
         generations: this.generations,
+        ...(this.selectedModel === 'PISTIL' && { pistil_model: this.pistilModel || 'llama3-8b' })
       };
       
       console.log('ProblemFormulation: Payload algorithm:', payload.algorithm);
@@ -696,66 +695,6 @@ export default {
           this.loading = false;
           this.isEstimating = false;
           this.errorMessage = e.response?.data?.error || e.response?.data?.message || 'Failed to estimate or run Full-Factorial.';
-          return;
-        }
-      }
-
-      // Pistil + GA: call chart-data directly via runGA (bypass /run-optimization for now)
-      if (this.selectedAlgorithm === 'Genetic Algorithm' && this.selectedModel === 'PISTIL') {
-        try {
-          const primaryTrace = this.traceWeights[0]?.name || 'pistil-default';
-          const gaParams = {
-            model: 'PISTIL',
-            algorithm: selectedAlgorithm,
-            population_size: this.populationSize,
-            generations: this.generations,
-            pistil_model: this.pistilModel || 'llama3-8b',
-            trace: primaryTrace,
-          };
-          console.log('ProblemFormulation: Calling runGA for Pistil with params:', gaParams);
-          
-          // Keep loading = true while GA runs in background
-          // The GA runs asynchronously, so we keep the button disabled/running state
-          // We'll track the expected number of points and clear loading when complete
-          const expectedPoints = this.populationSize * this.generations;
-          this.expectedPistilPoints = expectedPoints;
-          this.pistilRunId = null; // Will be set from response
-          
-          const responseData = await runGA(gaParams);
-          console.log('ProblemFormulation: Pistil GA response:', responseData);
-
-          // Track Pistil run_id for polling
-          const pistilRunId = responseData.pistil_run_id || '';
-          this.pistilRunId = pistilRunId;
-          
-          // Clear old points when starting a new Pistil run
-          // The parent (App.vue) will handle clearing via the run-id-updated event
-          // But we can also emit a signal to clear points
-          console.log('ProblemFormulation: Starting new Pistil run:', pistilRunId);
-          console.log('ProblemFormulation: Previous run_id was:', this.currentRunId);
-          console.log('ProblemFormulation: Expected points:', expectedPoints);
-          
-          this.currentRunId = pistilRunId;
-          console.log('ProblemFormulation: Set Pistil run_id for polling:', pistilRunId);
-
-          // Emit for plot components with run_id
-          // The run-id-updated event will trigger point clearing in App.vue
-          this.$emit('optimization-success', {
-            ...responseData,
-            run_directory: pistilRunId,
-            pistil_run_id: pistilRunId
-          });
-          this.$emit('run-id-updated', pistilRunId);
-          
-          // Start polling to check when GA completes
-          // Keep loading = true until all expected points are evaluated
-          this.startPistilGAStatusCheck(pistilRunId, expectedPoints);
-          
-          return;
-        } catch (error) {
-          console.error('ProblemFormulation: Pistil GA run failed:', error);
-          this.loading = false;
-          this.errorMessage = error.response?.data?.error || 'Failed to run Pistil GA optimization.';
           return;
         }
       }
@@ -833,78 +772,36 @@ export default {
         }
       }
       
+      // NORMAL FLOW FOR ALL GA (CASCADE and PISTIL)
       try {
-        // CRITICAL: Set lastAlgorithm BEFORE running optimization so polling uses correct algorithm
-        // This must happen for BOTH GA and Full-Factorial
-        try {
-          if (typeof window !== 'undefined') {
-            // Use the explicitly selected algorithm (should be 'Genetic Algorithm' or 'Full-Factorial')
-            const algorithm = selectedAlgorithm; // Use the variable we set earlier
-            window.__lastAlgorithm = algorithm;
-            if (window.localStorage) {
-              window.localStorage.setItem('lastAlgorithm', algorithm);
-            }
-            console.log('✅ ProblemFormulation: Set lastAlgorithm to:', algorithm, 'before running optimization');
-            console.log('✅ ProblemFormulation: selectedAlgorithm is:', this.selectedAlgorithm);
-            console.log('✅ ProblemFormulation: payload.algorithm is:', payload.algorithm);
-            
-            // Verify algorithm is correctly set
-            if (algorithm !== 'Genetic Algorithm' && algorithm !== 'Full-Factorial') {
-              console.warn('⚠️ WARNING: Algorithm is not Genetic Algorithm or Full-Factorial:', algorithm);
-            }
+        // Set lastAlgorithm
+        if (typeof window !== 'undefined') {
+          window.__lastAlgorithm = selectedAlgorithm;
+          if (window.localStorage) {
+            window.localStorage.setItem('lastAlgorithm', selectedAlgorithm);
           }
-        } catch (e) {
-          console.error('Error setting lastAlgorithm:', e);
         }
-        
-        console.log('✅ ProblemFormulation: About to call runOptimization with algorithm:', payload.algorithm);
+
         const response = await runOptimization(payload);
-        console.log('ProblemFormulation: Raw response:', response);
-        console.log('ProblemFormulation: Response type:', typeof response);
-        console.log('ProblemFormulation: Response keys:', Object.keys(response));
-        console.log('ProblemFormulation: Response.data:', response.data);
-        console.log('ProblemFormulation: Response.data type:', typeof response.data);
-        console.log('ProblemFormulation: Response.data keys:', response.data ? Object.keys(response.data) : 'no data');
-        
-        this.loading = false;
-        this.hasOptimizationData = true; // Set data availability
-        
-        // CRITICAL: Use run_id from database (not run_directory) for status polling
-        // run_id is the database identifier (e.g., "run_20251103_005130_abc12345")
-        // run_directory is the filesystem directory (e.g., "myrun_2025Nov03_005130")
-        const databaseRunId = response.data.run_id;
-        const runDirectory = response.data.run_directory;
-        
-        // Store run_directory for plot polling, but use run_id for status checking
-        this.currentRunId = runDirectory;
-        
-        console.log('ProblemFormulation: Optimization successful');
-        console.log('ProblemFormulation: Response data:', response.data);
-        console.log('ProblemFormulation: Database run_id:', databaseRunId);
-        console.log('ProblemFormulation: Run directory:', runDirectory);
-        console.log('ProblemFormulation: Using database run_id for status polling');
-        
-        // For Full-Factorial, start polling status in both online and offline modes
-        // Use database run_id for status polling (not run_directory)
-        if (this.selectedAlgorithm === 'Full-Factorial') {
-          // Always poll for Full-Factorial runs (both online and offline can be async)
-          if (databaseRunId) {
-            this.startStatusPolling(databaseRunId);
-          } else {
-            console.warn('⚠️ No database run_id provided, using run_directory:', runDirectory);
-            this.startStatusPolling(runDirectory);
-          }
-        } else if (this.selectedAlgorithm === 'Genetic Algorithm') {
-          // GA runs complete synchronously, but check status after a delay
-          const runIdToCheck = databaseRunId || runDirectory;
-          setTimeout(() => this.checkRunStatus(runIdToCheck), 2000);
+        console.log('ProblemFormulation: Response:', response);
+
+        const runId = response.data.pistil_run_id || response.data.run_id || response.data.run_directory;
+        this.currentRunId = runId;
+        this.hasOptimizationData = true;
+
+        // For PISTIL GA, start polling for completion
+        if (this.selectedModel === 'PISTIL' && this.selectedAlgorithm === 'Genetic Algorithm') {
+          const expectedPoints = this.populationSize * this.generations;
+          this.expectedPistilPoints = expectedPoints;
+          this.pistilRunId = runId;
+          this.startPistilGAStatusCheck(runId, expectedPoints);
         }
-        
-        // Emit event for parent/plot update if needed
+
         this.$emit('optimization-success', response.data);
-        console.log('ProblemFormulation: Emitting run-id-updated with:', this.currentRunId);
-        this.$emit('run-id-updated', this.currentRunId); // Emit run-id-updated
+        this.$emit('run-id-updated', runId);
+        this.loading = false;
       } catch (error) {
+        console.error('ProblemFormulation: Optimization failed:', error);
         this.loading = false;
         this.errorMessage = error.response?.data?.error || 'Failed to run optimization.';
       }

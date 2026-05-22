@@ -155,6 +155,10 @@ export default {
     currentRunId: {
       type: String,
       default: null
+    },
+    agentResults: {
+      type: Object,
+      default: null
     }
   },
   data() {
@@ -171,6 +175,17 @@ export default {
       timeMax: '',
       regionSummary: 'Pareto Front Ranks 1 to 3'
     };
+  },
+  watch: {
+    agentResults: {
+      immediate: true,
+      handler(newData) {
+        if (newData && newData.rules) {
+          this.rules = newData.rules;
+          this.showResults = true;  // skip to results view
+        }
+      }
+    }
   },
   methods: {
     updatePointSelection() {

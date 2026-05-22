@@ -23,7 +23,14 @@
                     </template>
                 </div>
                 <!-- Show loading when waiting for a response -->
-                <div v-if="loading" class="chat-message chat">Typing...</div>
+                <div v-if="loading" class="chat-message chat thinking-bubble">
+                    <span class="thinking-dots">
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                        <span class="dot"></span>
+                    </span>
+                    <span class="thinking-text">{{ thinkingText }}</span>
+                </div>
                 <div v-if="gettingData" class="chat-message chat">Loading Data...</div>
             </div>
 
@@ -69,9 +76,10 @@ export default {
         return {
             chatMessage: "",
             messages: [],
-            loading: false, // Shows loading while waiting for response
-            gettingData: false, // Shows getting data while waiting to get the embedding for data points
+            loading: false,
+            gettingData: false,
             showOptions: false,
+            thinkingText: 'Thinking...',
         };
     },
     setup() {
@@ -93,7 +101,25 @@ export default {
 
                 const userMessage = this.chatMessage;
                 this.chatMessage = ""; // Clear input
-                this.loading = true; // Indicate loading state
+                
+                // Smart thinking text based on query content
+                const queryLower = userMessage.toLowerCase();
+                if (queryLower.includes('highlight') || queryLower.includes('show me') || queryLower.includes('filter')) {
+                    this.thinkingText = '🔍 Highlighting designs...';
+                } else if (queryLower.includes('correlat') || queryLower.includes('dcorr') || queryLower.includes('relationship')) {
+                    this.thinkingText = '📊 Running distance correlation...';
+                } else if (queryLower.includes('rule') || queryLower.includes('pattern') || queryLower.includes('mining')) {
+                    this.thinkingText = '⛏️ Mining design rules...';
+                } else if (queryLower.includes('evaluat') || queryLower.includes('simulate')) {
+                    this.thinkingText = '⚙️ Evaluating design...';
+                } else if (queryLower.includes('energy')) {
+                    this.thinkingText = '🔋 Analyzing energy...';
+                } else if (queryLower.includes('optim') || queryLower.includes('run ga') || queryLower.includes('start')) {
+                    this.thinkingText = '🚀 Starting optimization...';
+                } else {
+                    this.thinkingText = '🤔 Thinking...';
+                }
+                this.loading = true;
                 const evaluator = this.selectedModel || 'CASCADE';
 
                 await nextTick(); // Wait for DOM update
@@ -127,6 +153,19 @@ export default {
                         console.log('Chat: Received highlighting data:', response.highlighting_data);
                         this.$emit('highlighting-response', response.highlighting_data);
                     }
+
+                    // Process frontend actions from agent tool calls
+                    if (response.frontend_actions && response.frontend_actions.length > 0) {
+                        response.frontend_actions.forEach(action => {
+                            if (action.type === 'highlight_points') {
+                                this.$emit('highlighting-response', action.data);
+                            } else if (action.type === 'update_distance_correlation') {
+                                this.$emit('agent-dcorr-update', action.data);
+                            } else if (action.type === 'update_rule_mining') {
+                                this.$emit('agent-rule-mining-update', action.data);
+                            }
+                        });
+                    }
                     
                     this.loading = false;
                     await nextTick();
@@ -134,10 +173,27 @@ export default {
                     return;
                 }
 
-                // Otherwise, show LLM response (and you may want to show Typing... for slow LLMs)
+                // Otherwise, show LLM response
                 if (response.response) {
                     this.messages.push({ text: response.response, sender: "chat", citations: response.citations || [] });
                 }
+
+                // Process frontend actions from agent tool calls
+                if (response.frontend_actions && response.frontend_actions.length > 0) {
+                    response.frontend_actions.forEach(action => {
+                        if (action.type === 'highlight_points') {
+                            console.log('Chat: Agent triggered highlighting');
+                            this.$emit('highlighting-response', action.data);
+                        } else if (action.type === 'update_distance_correlation') {
+                            console.log('Chat: Agent triggered distance correlation update');
+                            this.$emit('agent-dcorr-update', action.data);
+                        } else if (action.type === 'update_rule_mining') {
+                            console.log('Chat: Agent triggered rule mining update');
+                            this.$emit('agent-rule-mining-update', action.data);
+                        }
+                    });
+                }
+
                 this.loading = false;
                 await nextTick();
                 this.scrollToBottom();
@@ -266,6 +322,19 @@ export default {
                 } else if (response.response) {
                     // Show LLM response
                     this.messages.push({ text: response.response, sender: "chat", citations: response.citations || [] });
+                }
+
+                // Process frontend actions from agent tool calls
+                if (response.frontend_actions && response.frontend_actions.length > 0) {
+                    response.frontend_actions.forEach(action => {
+                        if (action.type === 'highlight_points') {
+                            this.$emit('highlighting-response', action.data);
+                        } else if (action.type === 'update_distance_correlation') {
+                            this.$emit('agent-dcorr-update', action.data);
+                        } else if (action.type === 'update_rule_mining') {
+                            this.$emit('agent-rule-mining-update', action.data);
+                        }
+                    });
                 }
             } catch (error) {
                 console.error("Error sending message to AI:", error);
@@ -510,5 +579,48 @@ button {
     border-radius: 5px;
     border: none;
     cursor: pointer;
+}
+
+/* Thinking animation */
+.thinking-bubble {
+    display: flex !important;
+    align-items: center;
+    gap: 0.5rem;
+    background: #eaf1ff !important;
+    border: 1px solid #d1e7ff;
+    animation: fadeIn 0.3s ease;
+}
+
+.thinking-dots {
+    display: flex;
+    gap: 3px;
+}
+
+.thinking-dots .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #337aff;
+    animation: bounce 1.4s infinite ease-in-out both;
+}
+
+.thinking-dots .dot:nth-child(1) { animation-delay: -0.32s; }
+.thinking-dots .dot:nth-child(2) { animation-delay: -0.16s; }
+.thinking-dots .dot:nth-child(3) { animation-delay: 0s; }
+
+@keyframes bounce {
+    0%, 80%, 100% { transform: scale(0); opacity: 0.5; }
+    40% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.thinking-text {
+    font-size: 0.85rem;
+    color: #337aff;
+    font-weight: 500;
 }
 </style>

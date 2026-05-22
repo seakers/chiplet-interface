@@ -61,6 +61,7 @@
           :filePath="filePath" 
           :selectedModel="selectedModel"
           :currentRunId="currentRunId"
+          :agentResults='ruleMiningData'
           @send-insights-to-chat="$emit('send-insights-to-chat', $event)" 
         />
       </div>
@@ -107,6 +108,14 @@ export default {
     closable: {
       type: Boolean,
       default: true
+    },
+    agentDcorrData: {
+      type: Object,
+      default: null
+    },
+    agentRuleMiningData: {
+      type: Object,
+      default: null
     }
   },
   data() {
@@ -118,6 +127,23 @@ export default {
       isLoading: false,
       error: null
     };
+  },
+  watch: {
+    agentDcorrData(newData) {
+      if (newData) {
+        console.log('DataMining: Agent pushed distance correlation data');
+        this.showDistanceCorrelation = true;
+        this.distanceCorrelationData = newData;
+        this.$emit('agent-data-consumed');
+      }
+    },
+    agentRuleMiningData(newData) {
+      if (newData) {
+        console.log('DataMining: Agent pushed rule mining data');
+        this.showRuleMining = true;
+        this.ruleMiningData = newData;
+      }
+    }
   },
   mounted() {
     console.log('=== DataMining mounted DEBUG ===');

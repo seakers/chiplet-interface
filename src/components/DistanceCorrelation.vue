@@ -86,17 +86,16 @@ export default {
       this.plots.forEach((plot, index) => {
         const variableKey = this.getVariableKey(plot.x);
         const xData = this.plotData.map(point => point[variableKey]);
-        
         const yKey = this.getObjectiveKey(plot.y);
         const yData = this.plotData.map(point => point[yKey]);
         
         // Debug logging
         console.log(`[DistanceCorrelation] Plot ${index}: ${plot.title}`);
-        console.log(`  Variable "${plot.x}" mapped to key "${variableKey}"`);
-        console.log(`  Objective "${plot.y}" mapped to key "${yKey}"`);
-        console.log(`  Sample xData (first 3):`, xData.slice(0, 3));
-        console.log(`  Sample yData (first 3):`, yData.slice(0, 3));
-        console.log(`  Undefined count - x: ${xData.filter(v => v === undefined).length}, y: ${yData.filter(v => v === undefined).length}`);
+        console.log(`Variable "${plot.x}" mapped to key "${variableKey}"`);
+        console.log(`Objective "${plot.y}" mapped to key "${yKey}"`);
+        console.log(`Sample xData (first 3):`, xData.slice(0, 3));
+        console.log(`Sample yData (first 3):`, yData.slice(0, 3));
+        console.log(`Undefined count - x: ${xData.filter(v => v === undefined).length}, y: ${yData.filter(v => v === undefined).length}`);
         
         const trace = {
           x: xData,
@@ -187,14 +186,14 @@ export default {
       if (this.selectedModel === 'PISTIL') {
         // PISTIL uses 'latency_ms' and 'energy_mJ'
         if (objectiveName.includes('Energy') || objectiveName.includes('energy')) {
-          if (availableKeys.includes('energy_mJ')) {
-            console.log(`[DistanceCorrelation] PISTIL: "${objectiveName}" → "energy_mJ" ✓`);
-            return 'energy_mJ';
+          if (availableKeys.includes('y')) {
+            console.log(`[DistanceCorrelation] PISTIL: "${objectiveName}" → "y" ✓`);
+            return 'y';
           }
         } else if (objectiveName.includes('Latency') || objectiveName.includes('latency')) {
-          if (availableKeys.includes('latency_ms')) {
-            console.log(`[DistanceCorrelation] PISTIL: "${objectiveName}" → "latency_ms" ✓`);
-            return 'latency_ms';
+          if (availableKeys.includes('x')) {
+            console.log(`[DistanceCorrelation] PISTIL: "${objectiveName}" → "x" ✓`);
+            return 'x';
           }
         }
       } else {
@@ -347,24 +346,6 @@ export default {
       return displayMap[variableName] || variableName;
     },
     
-    getVariableKey(variableName) {
-      // Hard-coded mapping for CASCADE
-      const cascadeMap = {
-        'GPU': 'gpu',
-        'Sparse': 'sparse',
-        'Attention': 'attn',
-        'Convolution': 'conv'
-      };
-      
-      // Check if it's a CASCADE variable
-      if (cascadeMap[variableName]) {
-        return cascadeMap[variableName];
-      }
-      
-      // For PISTIL, variable names are the same as keys
-      return variableName;
-    },
-    
     async sendDistanceCorrelationContextToChat(params, response) {
       try {
         const contextParams = {
@@ -393,7 +374,6 @@ export default {
       // Construct the key: "variable_vs_objective"
       // e.g., "num_cus_vs_Total Energy (mJ)"
       const key = `${plot.x}_vs_${plot.y}`;
-      
       console.log(`[DistanceCorrelation] Looking for key: "${key}"`);
       console.log(`[DistanceCorrelation] Available keys:`, Object.keys(this.distanceCorrelations));
       
