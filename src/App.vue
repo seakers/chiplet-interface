@@ -15,6 +15,7 @@
               @run-id-updated="handleRunIdUpdated"
               @view-changed="handleViewChanged"
               @model-selected="handleModelSelected"
+              @objectives-changed="handleObjectivesChanged"
             />
           </div>
           
@@ -40,6 +41,7 @@
               :currentRunId="currentRunId" 
               :customPoints="customPoints"
               :model="selectedModel"
+              :selectedObjectives="selectedObjectives"
               @point-selected="handlePointSelected" 
               @point-hovered="handlePointHovered" 
             />
@@ -54,35 +56,19 @@
               <div class="region-section">
                 <h4>Rectangular Region</h4>
                 <div class="region-inputs">
-                  <div class="input-group">
-                    <label>Energy Range:</label>
-                    <input 
-                      type="number" 
-                      v-model.number="rectangularRegion.energyMin" 
-                      placeholder="Min" 
+                  <div class="input-group" v-for="(obj, idx) in selectedObjectives.slice(0, 2)" :key="obj">
+                    <label>{{ obj }} Range:</label>
+                    <input
+                      type="number"
+                      v-model.number="rectangularRegion[`obj${idx}Min`]"
+                      placeholder="Min"
                       class="region-input"
                     />
                     <span>to</span>
-                    <input 
-                      type="number" 
-                      v-model.number="rectangularRegion.energyMax" 
-                      placeholder="Max" 
-                      class="region-input"
-                    />
-                  </div>
-                  <div class="input-group">
-                    <label>Time Range:</label>
-                    <input 
-                      type="number" 
-                      v-model.number="rectangularRegion.timeMin" 
-                      placeholder="Min" 
-                      class="region-input"
-                    />
-                    <span>to</span>
-                    <input 
-                      type="number" 
-                      v-model.number="rectangularRegion.timeMax" 
-                      placeholder="Max" 
+                    <input
+                      type="number"
+                      v-model.number="rectangularRegion[`obj${idx}Max`]"
+                      placeholder="Max"
                       class="region-input"
                     />
                   </div>
@@ -131,6 +117,7 @@
               :selectedXAxis="getSelectedAxes().x"
               :selectedYAxis="getSelectedAxes().y"
               :selectedModel="selectedModel"
+              :selectedObjectives="selectedObjectives"
               @evaluate-design="handleEvaluateDesign"
               @point-selected="handlePointSelected"
               @point-hovered="handlePointHovered"
@@ -145,6 +132,7 @@
             :currentRunId="currentRunId"
             :agentDcorrData="agentDcorrData"
             :agentRuleMiningData="agentRuleMiningData"
+            :selectedObjectives="selectedObjectives"
             @close="closeWindow('DataMining')"
             @send-insights-to-chat="handleSendInsightsToChat"
             @agent-data-consumed="agentDcorrData = null; agentRuleMiningData = null"
@@ -181,6 +169,7 @@
               :chatOpen="true" 
               :selectedModel="selectedModel"
               :run_id="currentRunId"
+              :selectedObjectives='selectedObjectives'
               @highlighting-response="handleHighlightingResponse" 
               @run-id-updated="handleRunIdUpdated"
               @agent-dcorr-update="handleAgentDcorrUpdate"
@@ -213,7 +202,7 @@ import Chat from './components/Chat.vue';
 import CustomDesignModal from './components/CustomDesignModal.vue';
 import draggable from 'vuedraggable';
 import { evaluatePointInputs, integrateCustomPointToGA, saveCustomPointToDataset } from './services/evaluation.js';
-import { addInsightsContext, getPointContext, addEnhancedInsightsContext } from './services/chat.js';
+import { addInsightsContext, addInfo, addEnhancedInsightsContext } from './services/chat.js';
 import { generateOptimizationReport } from './services/analytics.js';
 import DesignVisualizer from './components/DesignVisualizer.vue';
 
@@ -247,13 +236,12 @@ export default {
       customPoint: null, // Store the most recently created custom point for comparison
       showRegionSection: false,
       rectangularRegion: {
-        energyMin: null,
-        energyMax: null,
-        timeMin: null,
-        timeMax: null
+        obj0Min: null, obj0Max: null,
+        obj1Min: null, obj1Max: null,
       },
       paretoRanks: [1],
       selectedModel: null,  // Track selected model - starts as null until user selects
+      selectedObjectives: [],
       agentDcorrData: null,
       agentRuleMiningData: null,
     };
@@ -276,7 +264,7 @@ export default {
     currentFilePath() {
       // Check if this is a loaded run and return the temporary file path
       if (this.currentRunId && this.currentRunId.startsWith('loaded_run_')) {
-        return `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${this.currentRunId}.csv`;
+        return `api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${this.currentRunId}.csv`;
       }
       return null;
     }
@@ -916,56 +904,47 @@ export default {
     },
     async sendPointContextToChat(point) {
       try {
-        let summaryInsights;
+        // Build params based on model type
+        let params;
         if (point.model === 'PISTIL' || this.selectedModel === 'PISTIL') {
-            summaryInsights = `Selected PISTIL design point: CUs: ${point.num_cus || 0}, TMACs: ${point.num_tmacs || 0}, Mem Buffer: ${point.mem_buf_cap || 0}GB, Batch Size: ${point.batch_size || 0}, Latency/Token: ${point.latency_per_token_ms || point.x || 0}ms, Energy/Inference: ${point.energy_per_inference_mJ || point.y || 0}mJ`;
+          params = {
+            model:               this.selectedModel     ?? 'PISTIL',
+            num_cus:             point.num_cus          ?? 0,
+            num_tmacs:           point.num_tmacs         ?? 0,
+            mem_buf_cap:         point.mem_buf_cap        ?? 0,
+            net_buf_cap:         point.net_buf_cap        ?? 0,
+            mem_banks_per_group: point.mem_banks_per_group ?? 0,
+            mem_ranks:           point.mem_ranks          ?? 0,
+            mem_frac_bank_cap:   point.mem_frac_bank_cap  ?? 0,
+            batch_size:          point.batch_size         ?? 0,
+            kv_cache:            point.kv_cache           ?? 0,
+          };
         } else {
-            summaryInsights = `Selected design point: Execution Time: ${point.x}ms, Energy: ${point.y}mJ, GPU: ${point.gpu || 0}, Attention: ${point.attn || 0}, Sparse: ${point.sparse || 0}, Convolution: ${point.conv || 0}`;
+          params = {
+            model:  'CASCADE',
+            gpu:    point.gpu    ?? 0,
+            attn:   point.attn   ?? 0,
+            sparse: point.sparse ?? 0,
+            conv:   point.conv   ?? 0,
+          };
         }
-        // Try to fetch detailed context if we have a run ID
-        let detailedContext = null;
-        if (this.currentRunId) {
-          try {
-            console.log('Fetching detailed point context...');
-            const designName = `${point.gpu || 0}gpu${point.attn || 0}attn${point.sparse || 0}sparse${point.conv || 0}conv`;
-            const contextResponse = await getPointContext({
-              run_id: this.currentRunId,
-              design: designName,
-              gpu: point.gpu || 0,
-              attn: point.attn || 0,
-              sparse: point.sparse || 0,
-              conv: point.conv || 0
-            });
-            
-            if (contextResponse.context) {
-              detailedContext = contextResponse.context;
-              console.log('Detailed context fetched successfully');
-            }
-          } catch (error) {
-            console.log('Detailed context not available for this point:', error.message);
-            // Continue without detailed context - this is not a critical error
-          }
-        }
-        
-        // Send enhanced context to chat
-        await addEnhancedInsightsContext({
-          summary_insights: summaryInsights,
-          detailed_context: detailedContext
-        });
-        
-        console.log('Enhanced point context sent to chat');
+
+        // Single call using the proper utility function
+        await addInfo(params);
+        console.log('Design info sent to backend:', params);
+
+        // Build and send insights summary as before
+        const objLabels = (this.selectedObjectives || []).map(o => ({
+          name: o,
+          value: this.getObjectiveValueForPoint(point, o)
+        }));
+        const objStr = objLabels.map(o => `${o.name}: ${o.value}`).join(', ');
+        const summaryInsights = params.model === 'PISTIL'
+          ? `Selected PISTIL design: CUs: ${params.num_cus}, TMACs: ${params.num_tmacs}, Batch: ${params.batch_size}; Objectives — ${objStr}`
+          : `Selected CASCADE design: GPU: ${params.gpu}, Attn: ${params.attn}, Sparse: ${params.sparse}, Conv: ${params.conv}; Objectives — ${objStr}`;
+
       } catch (error) {
-        console.error('Error sending enhanced point context to chat:', error);
-        
-        // Fallback to basic context if enhanced fails
-        try {
-          await addInsightsContext({
-            insights: `Selected design point: Execution Time: ${point.x}ms, Energy: ${point.y}mJ, GPU: ${point.gpu || 0}, Attention: ${point.attn || 0}, Sparse: ${point.sparse || 0}, Convolution: ${point.conv || 0}`
-          });
-          console.log('Fallback: Basic point context sent to chat');
-        } catch (fallbackError) {
-          console.error('Error sending fallback context:', fallbackError);
-        }
+        console.error('Error sending point context to chat:', error);
       }
     },
     
@@ -1002,10 +981,8 @@ export default {
     },
     clearRectangularRegion() {
       this.rectangularRegion = {
-        energyMin: null,
-        energyMax: null,
-        timeMin: null,
-        timeMax: null
+        obj0Min: null, obj0Max: null,
+        obj1Min: null, obj1Max: null,
       };
       if (this.$refs.Plot && this.$refs.Plot.clearRectangularRegion) {
         this.$refs.Plot.clearRectangularRegion();
@@ -1038,7 +1015,32 @@ export default {
       if (this.$refs.Plot && this.$refs.Plot.clearManualSelection) {
         this.$refs.Plot.clearManualSelection();
       }
-    }
+    },
+    handleObjectivesChanged(objectives) {
+      console.log('[App.vue] Objectives changed:', objectives);
+      this.selectedObjectives = objectives;
+    },
+    getObjectiveValueForPoint(point, objName) {
+      const fieldMap = {
+        'Energy': 'y', 'Runtime': 'x',
+        'DRAM': 'energy_dram', 'Memory': 'mem_accessed', 'FLOPS': 'flops',
+        'Latency per Token':    'latency_per_token_ms',
+        'Energy per Inference': 'energy_per_inference_mJ',
+        'Energy per Token':     'energy_per_token_mJ',
+        'Average Power':        'average_power_W',
+        'System Power':         'system_power_W',
+        'System Cost':          'system_cost',
+        'Avg Compute Util':     'avg_comp_util',
+        'Avg Memory Util':      'avg_mem_util',
+        'Prefill Tokens/sec':   'prefill_tokens_per_sec',
+        'System Compute':       'system_compute_TOPS',
+        'System Bandwidth':     'system_bandwidth_TBps',
+        'System Capacity':      'system_capacity_GB',
+      };
+      const f = fieldMap[objName];
+      const v = f ? point[f] : undefined;
+      return typeof v === 'number' ? v.toFixed(3) : (v ?? 'n/a');
+    },
   },
 };
 </script>

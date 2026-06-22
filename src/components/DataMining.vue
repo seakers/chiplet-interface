@@ -62,6 +62,7 @@
           :selectedModel="selectedModel"
           :currentRunId="currentRunId"
           :agentResults='ruleMiningData'
+          :selectedObjectives='selectedObjectives'
           @send-insights-to-chat="$emit('send-insights-to-chat', $event)" 
         />
       </div>
@@ -71,11 +72,12 @@
           <h3>Distance Correlation Study</h3>
           <button @click="showDistanceCorrelation = false" class="close-btn" aria-label="Close">&times;</button>
         </div>
-        <DistanceCorrelation 
-          :filePath="filePath" 
+        <DistanceCorrelation
+          :filePath="filePath"
           :selectedModel="selectedModel"
           :currentRunId="currentRunId"
-          @send-insights-to-chat="$emit('send-insights-to-chat', $event)" 
+          :selectedObjectives="selectedObjectives"
+          @send-insights-to-chat="$emit('send-insights-to-chat', $event)"
         />
       </div>
     </div>
@@ -116,6 +118,10 @@ export default {
     agentRuleMiningData: {
       type: Object,
       default: null
+    },
+    selectedObjectives: {
+      type: Array,
+      default: () => []
     }
   },
   data() {

@@ -45,17 +45,11 @@
         <div v-if="selectedRegion === 'custom'" class="control-group">
           <label>Custom Selection:</label>
           <div class="custom-inputs">
-            <div class="input-row">
-              <span>Energy Range:</span>
-              <input type="number" v-model.number="energyMin" placeholder="Min" @change="updatePointSelection" />
+            <div class="input-row" v-for="(obj, idx) in selectedObjectives.slice(0, 2)" :key="obj">
+              <span>{{ obj }} Range:</span>
+              <input type="number" v-model.number="customRanges[idx].min" placeholder="Min" @change="updatePointSelection" />
               <span>-</span>
-              <input type="number" v-model.number="energyMax" placeholder="Max" @change="updatePointSelection" />
-            </div>
-            <div class="input-row">
-              <span>Time Range:</span>
-              <input type="number" v-model.number="timeMin" placeholder="Min" @change="updatePointSelection" />
-              <span>-</span>
-              <input type="number" v-model.number="timeMax" placeholder="Max" @change="updatePointSelection" />
+              <input type="number" v-model.number="customRanges[idx].max" placeholder="Max" @change="updatePointSelection" />
             </div>
           </div>
         </div>
@@ -79,13 +73,12 @@
     <div v-if="rules.length > 0" class="results">
       <h3>Mined Rules</h3>
       <div class="rules-legend">
-        <div class="legend-title">Chiplet Count Ranges:</div>
+        <div class="legend-title">Value Ranges:</div>
         <div class="legend-items">
-          <span class="legend-item"><strong>None:</strong> 0 chiplets</span>
-          <span class="legend-item"><strong>Low:</strong> 1-2 chiplets</span>
-          <span class="legend-item"><strong>Medium:</strong> 3-5 chiplets</span>
-          <span class="legend-item"><strong>High:</strong> 6-8 chiplets</span>
-          <span class="legend-item"><strong>Very High:</strong> 9+ chiplets</span>
+          <span class="legend-item"><strong>None:</strong> 0</span>
+          <span class="legend-item"><strong>Low:</strong> 0–33% of maximum</span>
+          <span class="legend-item"><strong>Medium:</strong> 33–67% of maximum</span>
+          <span class="legend-item"><strong>High:</strong> >67% of maximum</span>
         </div>
       </div>
       <table class="rules-table">
@@ -159,6 +152,10 @@ export default {
     agentResults: {
       type: Object,
       default: null
+    },
+    selectedObjectives: {
+      type: Array,
+      default: () => []
     }
   },
   data() {
@@ -169,10 +166,7 @@ export default {
       selectedRegion: 'pareto',
       paretoStartRank: 1,
       paretoEndRank: 3,
-      energyMin: '',
-      energyMax: '',
-      timeMin: '',
-      timeMax: '',
+      customRanges: Array.from({ length: 3 }, () => ({ min: '', max: '' })),
       regionSummary: 'Pareto Front Ranks 1 to 3'
     };
   },
@@ -189,15 +183,17 @@ export default {
   },
   methods: {
     updatePointSelection() {
-      let summary = '';
       if (this.selectedRegion === 'pareto') {
-        summary = `Pareto Front Ranks ${this.paretoStartRank} to ${this.paretoEndRank}`;
+        this.regionSummary = `Pareto Front Ranks ${this.paretoStartRank} to ${this.paretoEndRank}`;
       } else if (this.selectedRegion === 'custom') {
-        summary = `Custom Selection: Energy ${this.energyMin} to ${this.energyMax}, Time ${this.timeMin} to ${this.timeMax}`;
+        const parts = (this.selectedObjectives || []).map((name, i) => {
+          const r = this.customRanges[i] || {};
+          return `${name}: [${r.min ?? '−∞'}, ${r.max ?? '∞'}]`;
+        });
+        this.regionSummary = `Custom Selection: ${parts.join(', ')}`;
       } else {
-        summary = 'All Points';
+        this.regionSummary = 'All Points';
       }
-      this.regionSummary = summary;
     },
     async runRuleMining() {
       console.log("=== runRuleMining CALLED ===");
@@ -212,19 +208,20 @@ export default {
           region: this.selectedRegion,
           paretoStartRank: this.paretoStartRank,
           paretoEndRank: this.paretoEndRank,
-          energyMin: this.energyMin,
-          energyMax: this.energyMax,
-          timeMin: this.timeMin,
-          timeMax: this.timeMax,
           evaluator: this.selectedModel,
-          run_id: this.currentRunId  // Use prop instead of $parent
+          run_id: this.currentRunId,
+          // NEW: pass the full objective list (joined for query string)
+          objectives: (this.selectedObjectives || []).join(','),
         };
-        
-        // Add file path if provided (for loaded runs)
-        if (this.filePath) {
-          params.file_path = this.filePath;
-          console.log('RuleMining: Using file path:', this.filePath);
-        }
+
+        // keep individual ranges
+        (this.selectedObjectives || []).forEach((name, i) => {
+          params[`obj${i}_name`] = name;
+          if (this.customRanges[i]?.min !== '') params[`obj${i}_min`] = this.customRanges[i].min;
+          if (this.customRanges[i]?.max !== '') params[`obj${i}_max`] = this.customRanges[i].max;
+        });
+
+        if (this.filePath) params.file_path = this.filePath;
         
         const response = await getRuleMining(params);
         this.rules = response.rules;
@@ -296,7 +293,7 @@ export default {
         const chipletName = chipletNames[chipletType] || chipletType;
         const levelName = levelNames[level] || level;
         
-        return `${levelName} number of ${chipletName} Chiplets`;
+        return `${levelName} value for ${chipletName}`;
       }
       
       // Handle other conditions (like performance metrics)
@@ -345,11 +342,12 @@ export default {
           region: this.selectedRegion,
           paretoStartRank: this.paretoStartRank,
           paretoEndRank: this.paretoEndRank,
-          energyMin: this.energyMin,
-          energyMax: this.energyMax,
-          timeMin: this.timeMin,
-          timeMax: this.timeMax
+          objectives: (this.selectedObjectives || []).join(','),
         };
+        (this.selectedObjectives || []).forEach((name, i) => {
+          if (this.customRanges[i]?.min !== '') params[`obj${i}_min`] = this.customRanges[i].min;
+          if (this.customRanges[i]?.max !== '') params[`obj${i}_max`] = this.customRanges[i].max;
+        });
         
         const response = await getRuleMiningInsights(params);
         const insights = response.insights;

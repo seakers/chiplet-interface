@@ -69,6 +69,10 @@ const props = defineProps({
   model: {
     type: String,
     default: null  // No default - wait for explicit model selection
+  },
+  selectedObjectives: {
+    type: Array,
+    default: () => []
   }
 });
 
@@ -118,33 +122,78 @@ function getFieldForAxis(axisLabel) {
     return axisToField[axisLabel] || axisLabel.toLowerCase().replace(/\s+/g, '_');
 }
 
+function getAxisLabelForObjective(objName) {
+  const objToAxis = {
+    'exe_time_ms': 'Total time (ms)',
+    'energy_mj': 'Total Energy (mJ)',
+    'temperature_K': 'Temperature (K)',
+    'latency_us': 'Latency (μs)',
+    'latency_per_token_ms': 'Latency per Token (ms)',
+    'energy_per_inference_mJ': 'Energy per Inference (mJ)',
+    'energy_per_token_mJ': 'Energy per Token (mJ)',
+    'average_power_W': 'Average Power (W)',
+    'system_power_W': 'System Power (W)',
+    'system_cost': 'System Cost ($)',
+    'avg_comp_util': 'Avg Compute Util (%)',
+    'avg_mem_util': 'Avg Memory Util (%)',
+    'prefill_tokens_per_sec': 'Prefill Tokens/sec',
+    'system_compute_TOPS': 'System Compute (TOPS)',
+    'system_bandwidth_TBps': 'System Bandwidth (TB/s)',
+    'system_capacity_GB': 'System Capacity (GB)'
+  };
+  // Also support frontend display names from ProblemFormulation
+  const friendly = {
+    'Energy': 'Total Energy (mJ)',
+    'Runtime': 'Total time (ms)',
+    'Temperature': 'Temperature (K)',
+    'Latency': 'Latency (μs)',
+    'Latency per Token': 'Latency per Token (ms)',
+    'Energy per Inference': 'Energy per Inference (mJ)',
+    'Energy per Token': 'Energy per Token (mJ)',
+    'Average Power': 'Average Power (W)',
+    'System Power': 'System Power (W)',
+    'System Cost': 'System Cost ($)',
+    'Avg Compute Util': 'Avg Compute Util (%)',
+    'Avg Memory Util': 'Avg Memory Util (%)',
+    'Prefill Tokens/sec': 'Prefill Tokens/sec',
+    'System Compute': 'System Compute (TOPS)',
+    'System Bandwidth': 'System Bandwidth (TB/s)',
+    'System Capacity': 'System Capacity (GB)'
+  };
+  return friendly[objName] || objToAxis[objName] || objName;
+}
+
 // Detect model type from data and update axes accordingly
 function updateAxesForModel(points) {
-    if (!points || points.length === 0) return;
-    
-    // Check if any point has model: 'PISTIL'
-    const isPistil = points.some(pt => pt.model === 'PISTIL');
-    
-    if (isPistil) {
-        // Update available axes for Pistil
-        availableAxes.value = pistilAxes;
-        // Update default selections to Pistil objectives
-        if (selectedXAxis.value === "Total time (ms)" || !pistilAxes.includes(selectedXAxis.value)) {
-            selectedXAxis.value = "Latency per Token (ms)";
-        }
-        if (selectedYAxis.value === "Total Energy (mJ)" || !pistilAxes.includes(selectedYAxis.value)) {
-            selectedYAxis.value = "Energy per Inference (mJ)";
-        }
-    } else {
-        // Use CASCADE axes
-        availableAxes.value = cascadeAxes;
-        if (!cascadeAxes.includes(selectedXAxis.value)) {
-            selectedXAxis.value = "Total time (ms)";
-        }
-        if (!cascadeAxes.includes(selectedYAxis.value)) {
-            selectedYAxis.value = "Total Energy (mJ)";
-        }
+  const selected = props.selectedObjectives || [];
+
+  if (selected.length > 0) {
+    // Restrict axes to user-selected objectives
+    const labels = selected.map(getAxisLabelForObjective);
+    availableAxes.value = labels;
+    if (!labels.includes(selectedXAxis.value)) {
+      selectedXAxis.value = labels[0];
     }
+    if (labels.length > 1 && !labels.includes(selectedYAxis.value)) {
+      selectedYAxis.value = labels[1];
+    } else if (labels.length === 1) {
+      selectedYAxis.value = labels[0]; // 1-D plot fallback
+    }
+    return;
+  }
+
+  // Fallback to model defaults (existing logic)
+  if (!points || points.length === 0) return;
+  const isPistil = points.some(pt => pt.model === 'PISTIL');
+  if (isPistil) {
+    availableAxes.value = pistilAxes;
+    if (!pistilAxes.includes(selectedXAxis.value)) selectedXAxis.value = "Latency per Token (ms)";
+    if (!pistilAxes.includes(selectedYAxis.value)) selectedYAxis.value = "Energy per Inference (mJ)";
+  } else {
+    availableAxes.value = cascadeAxes;
+    if (!cascadeAxes.includes(selectedXAxis.value)) selectedXAxis.value = "Total time (ms)";
+    if (!cascadeAxes.includes(selectedYAxis.value)) selectedYAxis.value = "Total Energy (mJ)";
+  }
 }
 
 const popupX = ref(0);
@@ -471,12 +520,12 @@ const fetchChartData = async (runId = null) => {
         // Only handle Cascade-specific run types if model is CASCADE
         if (currentModel === 'CASCADE') {
             if (hasLoadedRunData.value && props.currentRunId && props.currentRunId.startsWith('loaded_run_')) {
-                const tempFilePath = `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${props.currentRunId}.csv`;
+                const tempFilePath = `api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${props.currentRunId}.csv`;
                 params.file_path = tempFilePath;
                 console.log('[CASCADE] Polling with loaded run file path:', tempFilePath);
             } else if (props.currentRunId && props.currentRunId.startsWith('restarted_run_')) {
                 // For restarted runs, poll the main points.csv (which will have new GA points)
-                const restartedPath = `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/${props.currentRunId}/points.csv`;
+                const restartedPath = `api/Evaluator/cascade/chiplet_model/dse/results/${props.currentRunId}/points.csv`;
                 params.file_path = restartedPath;
                 console.log('[CASCADE] Polling with restarted run file path:', restartedPath);
             } else {
@@ -520,6 +569,11 @@ const fetchChartData = async (runId = null) => {
         // Pass run_id if available so backend can look up correct algorithm from database
         if (props.currentRunId && !params.run_id) {
           params.run_id = props.currentRunId;
+        }
+        
+        // Pass selected objectives to backend
+        if (props.selectedObjectives && props.selectedObjectives.length > 0) {
+          params.objectives = props.selectedObjectives.join(',');
         }
         
         // Final validation: ensure model is set
@@ -1062,41 +1116,6 @@ const createChart = () => {
                     console.log('Selected new point');
                     const pt = allPoints.value[globalIndex];
                     emit('point-selected', pt);
-                    (async () => {
-                      try {
-                        let params;
-                        if (pt?.model === 'PISTIL') {
-                          params = {
-                            model: 'PISTIL',
-                            num_cus: pt?.num_cus ?? '',
-                            num_tmacs: pt?.num_tmacs ?? '',
-                            mem_buf_cap: pt?.mem_buf_cap ?? '',
-                            net_buf_cap: pt?.net_buf_cap ?? '',
-                            mem_banks_per_group: pt?.mem_banks_per_group ?? '',
-                            mem_ranks: pt?.mem_ranks ?? '',
-                            mem_frac_bank_cap: pt?.mem_frac_bank_cap ?? '',
-                            batch_size: pt?.batch_size ?? '',
-                            kv_cache: pt?.kv_cache ?? '',
-                            latency_per_token_ms: pt?.latency_per_token_ms ?? '',
-                            energy_per_inference_mJ: pt?.energy_per_inference_mJ ?? '',
-                          };
-                        } else {
-                          params = {
-                            model: 'CASCADE',
-                            exe: pt?.x ?? '',
-                            energy: pt?.y ?? '',
-                            gpu: pt?.gpu ?? 0,
-                            attn: pt?.attn ?? 0,
-                            sparse: pt?.sparse ?? 0,
-                            conv: pt?.conv ?? 0,
-                          };
-                        }
-                        await axios.get("http://127.0.0.1:8000/add-info/", { params });
-                        console.log("Sent design info to backend:", params);
-                      } catch (err) {
-                        console.error("Error sending design info to backend:", err);
-                      }
-                    })();
                   }
                 }
                 
@@ -2003,6 +2022,14 @@ watch(() => props.customPoints, (newCustomPoints) => {
   if (chartInstance) {
     chartInstance.data.datasets = buildChartData();
     chartInstance.update();
+  }
+}, { deep: true });
+
+watch(() => props.selectedObjectives, (newObjs) => {
+  console.log('[Plot] selectedObjectives changed:', newObjs);
+  updateAxesForModel(allPoints.value);
+  if (chartInstance) {
+    updateChart();
   }
 }, { deep: true });
 

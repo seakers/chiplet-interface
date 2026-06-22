@@ -58,18 +58,10 @@ import { sendChat, clearChat, addInfo } from '@/services/chat';
 
 export default {
     props: {
-        chatOpen: {
-            type: Boolean,
-            default: true
-        },
-        selectedModel: {
-            type: String,
-            default: null
-        },
-        run_id: {
-            type: String,
-            default: null
-        }
+        chatOpen:          { type: Boolean, default: true },
+        selectedModel:     { type: String,  default: null },
+        run_id:            { type: String,  default: null },
+        selectedObjectives: { type: Array,  default: () => [] },
     },
     emits: ["toggle-chat", "highlighting-response"],
     data() {
@@ -125,12 +117,14 @@ export default {
                 await nextTick(); // Wait for DOM update
                 this.scrollToBottom();
 
+                console.log("[CHAT] Objectives: ", this.selectedObjectives)
                 // Send message to backend
                 const response = await sendChat({
                     role: "user",
                     content: userMessage,
                     evaluator: evaluator,
                     run_id: this.run_id,
+                    objectives: this.selectedObjectives,
                 });
 
                 // If backend returns a 'message' field (optimization confirmation), show it immediately

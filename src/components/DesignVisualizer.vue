@@ -2,10 +2,19 @@
   <div class="design-visualizer">
     <div class="visualizer-header">
       <h3>Design Visualizer</h3>
-      <div v-if="currentPoint" class="design-status">
-        <span v-if="isSelected" class="status-badge selected">Selected</span>
-        <span v-if="isHovered" class="status-badge hovered">Hovered</span>
-        <span v-if="customPoint" class="status-badge custom">Custom</span>
+      <div class="header-right">
+        <button
+          v-if="isPistilPoint && currentPoint"
+          class="btn btn-visualize"
+          @click="openVisualizeModal"
+        >
+          🔍 Visualize
+        </button>
+        <div v-if="currentPoint" class="design-status">
+          <span v-if="isSelected" class="status-badge selected">Selected</span>
+          <span v-if="isHovered" class="status-badge hovered">Hovered</span>
+          <span v-if="customPoint" class="status-badge custom">Custom</span>
+        </div>
       </div>
     </div>
 
@@ -316,15 +325,16 @@
           <div class="design-info-column">
             <h4>Design Information</h4>
             <div class="performance-metrics">
-              <div class="info-item">
-                <span class="info-label">Execution Time:</span>
-                <span class="info-value">{{ formatValue(currentPoint.x) }} ms</span>
+              <div
+                class="info-item"
+                v-for="obj in displayedObjectives"
+                :key="obj.field"
+              >
+                <span class="info-label">{{ obj.label }}:</span>
+                <span class="info-value">
+                  {{ formatValue(currentPoint[obj.field]) }} {{ obj.unit }}
+                </span>
               </div>
-              <div class="info-item">
-                <span class="info-label">Energy:</span>
-                <span class="info-value">{{ formatValue(currentPoint.y) }} mJ</span>
-              </div>
-              <!-- Add more objectives here if needed -->
             </div>
           </div>
 
@@ -451,6 +461,47 @@
       <p>Hover over a design to view details</p>
       <p class="empty-subtitle">Click to select a design for modification</p>
     </div>
+    <!-- PDF Visualize Modal -->
+    <teleport to="body">
+      <div v-if="showVisualizeModal" class="viz-modal-overlay" @click.self="closeVisualizeModal">
+        <div class="viz-modal">
+          <div class="viz-modal-header">
+            <h3>Design Visualizations</h3>
+            <button class="viz-modal-close" @click="closeVisualizeModal">✕</button>
+          </div>
+
+          <!-- Thumbnail strip -->
+          <div class="viz-thumb-strip">
+            <button
+              v-for="(pdf, idx) in pdfFiles"
+              :key="pdf.name"
+              class="viz-thumb-btn"
+              :class="{ active: currentPdfIndex === idx }"
+              @click="currentPdfIndex = idx"
+            >
+              {{ pdf.label }}
+            </button>
+          </div>
+
+          <!-- PDF viewer -->
+          <div class="viz-pdf-container">
+            <button class="viz-nav-btn left" @click="prevPdf" :disabled="currentPdfIndex === 0">‹</button>
+            <div v-if="!pdfBlobUrl" class="viz-pdf-loading">Loading PDF...</div>
+            <iframe
+              v-else
+              :src="pdfBlobUrl"
+              class="viz-pdf-iframe"
+              type="application/pdf"
+            />
+            <button class="viz-nav-btn right" @click="nextPdf" :disabled="currentPdfIndex === pdfFiles.length - 1">›</button>
+          </div>
+
+          <div class="viz-pdf-label">
+            {{ pdfFiles[currentPdfIndex]?.label }} ({{ currentPdfIndex + 1 }} / {{ pdfFiles.length }})
+          </div>
+        </div>
+      </div>
+    </teleport>
   </div>
 </template>
 
@@ -458,30 +509,13 @@
 export default {
   name: 'DesignVisualizer',
   props: {
-    hoveredPoint: {
-      type: Object,
-      default: null
-    },
-    selectedPoint: {
-      type: Object,
-      default: null
-    },
-    customPoint: {
-      type: Object,
-      default: null
-    },
-    selectedXAxis: {
-      type: String,
-      default: ''
-    },
-    selectedYAxis: {
-      type: String,
-      default: ''
-    },
-    selectedModel: {          // ADD THIS
-      type: String,
-      default: null
-    }
+    hoveredPoint:  { type: Object, default: null },
+    selectedPoint: { type: Object, default: null },
+    customPoint:   { type: Object, default: null },
+    selectedXAxis: { type: String, default: '' },
+    selectedYAxis: { type: String, default: '' },
+    selectedModel: { type: String, default: null },
+    selectedObjectives: { type: Array,  default: () => [] },  // ← ADD
   },
   emits: ['evaluate-design'],
   data() {
@@ -497,7 +531,10 @@ export default {
         attn: 0,
         sparse: 0,
         conv: 0
-      }
+      },
+      showVisualizeModal: false,
+      currentPdfIndex: 0,
+      pdfBlobUrl: '',
     };
   },
   computed: {
@@ -553,7 +590,66 @@ export default {
                            (this.displayValues.sparse || 0) + 
                            (this.displayValues.conv || 0);
       return Math.max(0, 12 - totalChiplets); // Assuming 12 total slots
-    }
+    },
+    displayedObjectives() {
+      const objectiveMeta = {
+        // CASCADE
+        'Energy':            { field: 'y',                       label: 'Energy',              unit: 'mJ' },
+        'Runtime':           { field: 'x',                       label: 'Execution Time',      unit: 'ms' },
+        'Temperature':       { field: 'temperature',             label: 'Temperature',         unit: 'K' },
+        'Latency':           { field: 'latency',                 label: 'Latency',             unit: 'μs' },
+        // PISTIL
+        'Latency per Token': { field: 'latency_per_token_ms',    label: 'Latency per Token',   unit: 'ms' },
+        'Energy per Inference': { field: 'energy_per_inference_mJ', label: 'Energy per Inference', unit: 'mJ' },
+        'Energy per Token':  { field: 'energy_per_token_mJ',     label: 'Energy per Token',    unit: 'mJ' },
+        'Average Power':     { field: 'average_power_W',         label: 'Average Power',       unit: 'W' },
+        'System Power':      { field: 'system_power_W',          label: 'System Power',        unit: 'W' },
+        'System Cost':       { field: 'system_cost',             label: 'System Cost',         unit: '$' },
+        'Avg Compute Util':  { field: 'avg_comp_util',           label: 'Avg Compute Util',    unit: '%' },
+        'Avg Memory Util':   { field: 'avg_mem_util',            label: 'Avg Memory Util',     unit: '%' },
+        'Prefill Tokens/sec':{ field: 'prefill_tokens_per_sec',  label: 'Prefill Tokens/sec',  unit: '' },
+        'System Compute':    { field: 'system_compute_TOPS',     label: 'System Compute',      unit: 'TOPS' },
+        'System Bandwidth':  { field: 'system_bandwidth_TBps',   label: 'System Bandwidth',    unit: 'TB/s' },
+        'System Capacity':   { field: 'system_capacity_GB',      label: 'System Capacity',     unit: 'GB' },
+      };
+      if (!this.selectedObjectives || this.selectedObjectives.length === 0) {
+        // Backward-compat: show old hardcoded x/y
+        return [
+          { field: 'x', label: 'Execution Time', unit: 'ms' },
+          { field: 'y', label: 'Energy',         unit: 'mJ' },
+        ];
+      }
+      return this.selectedObjectives
+        .map(name => objectiveMeta[name])
+        .filter(Boolean);
+    },
+    pistilConfigFolder() {
+      if (!this.currentPoint) return null;
+      const p = this.currentPoint;
+
+      // Helper: ensures values like 1 become "1.0", 0.25 stays "0.25", 2 becomes "2.0"
+      const fmt = (val) => {
+        const n = parseFloat(val);
+        return Number.isInteger(n) ? n.toFixed(1) : String(n);
+      };
+
+      const base = '/home/snagg/chiplet-server/api/Evaluator/sim-v2-4-pistil-sim-clean/configs/gen_configs';
+      const folder = `pistil-config-num_cus-${p.num_cus}-tmacs-${p.num_tmacs}-mem_buf_cap-${fmt(p.mem_buf_cap)}-net_buf_cap-${fmt(p.net_buf_cap)}-mem_bank_groups-${p.mem_banks_per_group}-mem_ranks-${p.mem_ranks}-mem_frac_bank_cap-${fmt(p.mem_frac_bank_cap)}`;
+      return `${base}/${folder}`;
+    },
+    pdfFiles() {
+      if (!this.pistilConfigFolder) return [];
+      const files = [
+        { name: 'compute-chiplet-visual.pdf', label: 'Compute Chiplet' },
+        { name: 'compute-unit-visual.pdf',    label: 'Compute Unit'    },
+        { name: 'core-visual.pdf',            label: 'Core'            },
+        { name: 'hbm-co-visual.pdf',          label: 'HBM Co'         },
+      ];
+      return files.map(f => ({
+        ...f,
+        path: `${this.pistilConfigFolder}/${f.name}`,
+      }));
+    },
   },
   watch: {
     selectedPoint: {
@@ -583,6 +679,20 @@ export default {
         }
       },
       immediate: true
+    },
+    currentPdfIndex: {
+      async handler(newIndex) {
+        await this.loadPdfBlob(newIndex);
+      }
+    },
+    // Also watch pdfFiles in case the point changes
+    pdfFiles: {
+      async handler(newFiles) {
+        if (newFiles.length > 0) {
+          await this.loadPdfBlob(this.currentPdfIndex);
+        }
+      },
+      deep: true
     }
   },
   methods: {
@@ -626,7 +736,46 @@ export default {
       };
       
       this.$emit('evaluate-design', modifiedDesign);
-    }
+    },
+    getFieldForObjective(name) {
+      const obj = this.displayedObjectives.find(o => o.label === name || o.field === name);
+      return obj ? obj.field : 'x';
+    },
+    async openVisualizeModal() {
+      console.log("QC")
+      this.currentPdfIndex = 0;
+      this.showVisualizeModal = true;
+      await this.loadPdfBlob(0);
+    },
+    closeVisualizeModal() {
+      this.showVisualizeModal = false;
+    },
+    prevPdf() {
+      if (this.currentPdfIndex > 0) this.currentPdfIndex--;
+    },
+    nextPdf() {
+      if (this.currentPdfIndex < this.pdfFiles.length - 1) this.currentPdfIndex++;
+    },
+    async loadPdfBlob(index) {
+      const f = this.pdfFiles[index];
+      if (!f) return;
+      try {
+        // Revoke old blob URL to free memory
+        if (this.pdfBlobUrl) {
+          URL.revokeObjectURL(this.pdfBlobUrl);
+          this.pdfBlobUrl = '';
+        }
+        const response = await fetch(
+          `http://localhost:8000/api/pdf?path=${encodeURIComponent(f.path)}`
+        );
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        this.pdfBlobUrl = URL.createObjectURL(blob);
+      } catch (err) {
+        console.error('Failed to load PDF:', err);
+        this.pdfBlobUrl = '';
+      }
+    },
   }
 };
 </script>
@@ -1269,6 +1418,165 @@ export default {
   outline: none;
   border-color: #6f42c1;
   box-shadow: 0 0 0 2px rgba(111, 66, 193, 0.25);
+}
+
+/* Header right side with visualize button */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.btn-visualize {
+  background: #6f42c1;
+  color: white;
+  border: none;
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-visualize:hover {
+  background: #5a32a3;
+}
+
+/* Modal overlay */
+.viz-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.viz-modal {
+  background: #fff;
+  border-radius: 10px;
+  width: 85vw;
+  max-width: 1000px;
+  height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+  overflow: hidden;
+}
+
+.viz-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+}
+.viz-modal-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #2d3748;
+}
+.viz-modal-close {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: #718096;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+.viz-modal-close:hover {
+  background: #f7fafc;
+  color: #2d3748;
+}
+
+/* Thumbnail strip */
+.viz-thumb-strip {
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+.viz-thumb-btn {
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid #e2e8f0;
+  background: white;
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #4a5568;
+  transition: all 0.15s;
+}
+.viz-thumb-btn:hover {
+  background: #edf2f7;
+}
+.viz-thumb-btn.active {
+  background: #6f42c1;
+  color: white;
+  border-color: #6f42c1;
+}
+
+/* PDF viewer */
+.viz-pdf-container {
+  flex: 1;
+  display: flex;
+  align-items: stretch;
+  position: relative;
+  overflow: hidden;
+}
+.viz-pdf-iframe {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+.viz-nav-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 10;
+  background: rgba(255,255,255,0.9);
+  border: 1px solid #e2e8f0;
+  border-radius: 50%;
+  width: 2.5rem;
+  height: 2.5rem;
+  font-size: 1.5rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+  transition: all 0.15s;
+}
+.viz-nav-btn:hover:not(:disabled) {
+  background: white;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.viz-nav-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+.viz-nav-btn.left  { left:  0.75rem; }
+.viz-nav-btn.right { right: 0.75rem; }
+
+.viz-pdf-label {
+  text-align: center;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  color: #718096;
+  border-top: 1px solid #e2e8f0;
+}
+
+.viz-pdf-loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #718096;
+  font-size: 0.95rem;
 }
 
 /* Responsive design */

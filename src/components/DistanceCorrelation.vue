@@ -34,18 +34,10 @@ export default {
     HelpTooltip
   },
   props: {
-    filePath: {
-      type: String,
-      default: null
-    },
-    selectedModel: {
-      type: String,
-      default: null
-    },
-    currentRunId: {
-      type: String,
-      default: null
-    }
+    filePath:  { type: String, default: null },
+    selectedModel:    { type: String, default: null },
+    currentRunId:     { type: String, default: null },
+    selectedObjectives: { type: Array, default: () => [] },
   },
   data() {
     return {
@@ -175,50 +167,62 @@ export default {
     },
     
     getObjectiveKey(objectiveName) {
-      if (!this.plotData || this.plotData.length === 0) {
-        console.warn('[DistanceCorrelation] No plotData available');
-        return objectiveName;
-      }
-      
+      if (!this.plotData || this.plotData.length === 0) return objectiveName;
       const availableKeys = Object.keys(this.plotData[0]);
-      
-      // Handle based on evaluator type
-      if (this.selectedModel === 'PISTIL') {
-        // PISTIL uses 'latency_ms' and 'energy_mJ'
-        if (objectiveName.includes('Energy') || objectiveName.includes('energy')) {
-          if (availableKeys.includes('y')) {
-            console.log(`[DistanceCorrelation] PISTIL: "${objectiveName}" → "y" ✓`);
-            return 'y';
-          }
-        } else if (objectiveName.includes('Latency') || objectiveName.includes('latency')) {
-          if (availableKeys.includes('x')) {
-            console.log(`[DistanceCorrelation] PISTIL: "${objectiveName}" → "x" ✓`);
-            return 'x';
-          }
-        }
-      } else {
-        // CASCADE uses 'x' and 'y'
-        if (objectiveName.includes('Energy')) {
-          if (availableKeys.includes('y')) {
-            console.log(`[DistanceCorrelation] CASCADE: "${objectiveName}" → "y" ✓`);
-            return 'y';
-          }
-        } else if (objectiveName.includes('Time')) {
-          if (availableKeys.includes('x')) {
-            console.log(`[DistanceCorrelation] CASCADE: "${objectiveName}" → "x" ✓`);
-            return 'x';
-          }
-        }
+
+      // Friendly name → internal data key
+      const friendlyToField = {
+        'Energy':                'y',
+        'Runtime':               'x',
+        'Latency per Token':     'latency_per_token_ms',
+        'Energy per Inference':  'energy_per_inference_mJ',
+        'Energy per Token':      'energy_per_token_mJ',
+        'Average Power':         'average_power_W',
+        'System Power':          'system_power_W',
+        'System Cost':           'system_cost',
+        'Avg Compute Util':      'avg_comp_util',
+        'Avg Memory Util':       'avg_mem_util',
+        'Prefill Tokens/sec':    'prefill_tokens_per_sec',
+        'System Compute':        'system_compute_TOPS',
+        'System Bandwidth':      'system_bandwidth_TBps',
+        'System Capacity':       'system_capacity_GB',
+      };
+
+      // 1. Direct friendly-name lookup
+      if (friendlyToField[objectiveName]) {
+        const mapped = friendlyToField[objectiveName];
+        if (availableKeys.includes(mapped)) return mapped;
       }
-      
-      // Check if exact match exists (fallback)
-      if (availableKeys.includes(objectiveName)) {
-        console.log(`[DistanceCorrelation] Objective "${objectiveName}" found directly ✓`);
-        return objectiveName;
-      }
-      
+
+      // 2. Key already exists as-is (backend returned internal key)
+      if (availableKeys.includes(objectiveName)) return objectiveName;
+
+      // 3. Snake_case fallback
+      const snake = objectiveName.toLowerCase().replace(/\s+/g, '_');
+      if (availableKeys.includes(snake)) return snake;
+
       console.error(`[DistanceCorrelation] Objective "${objectiveName}" not found. Available:`, availableKeys);
       return objectiveName;
+    },
+
+    getObjectiveShortName(objectiveName) {
+      const shortNames = {
+        'Energy':                'Energy',
+        'Runtime':               'Runtime',
+        'Latency per Token':     'Latency/Token',
+        'Energy per Inference':  'Energy/Inf',
+        'Energy per Token':      'Energy/Token',
+        'Average Power':         'Avg Power',
+        'System Power':          'Sys Power',
+        'System Cost':           'Cost',
+        'Avg Compute Util':      'Compute Util',
+        'Avg Memory Util':       'Mem Util',
+        'Prefill Tokens/sec':    'Prefill T/s',
+        'System Compute':        'Compute',
+        'System Bandwidth':      'Bandwidth',
+        'System Capacity':       'Capacity',
+      };
+      return shortNames[objectiveName] || objectiveName.split(' ').pop();
     },
 
     async getInsights() {
@@ -250,19 +254,13 @@ export default {
       try {
         const params = {
           evaluator: this.selectedModel || 'CASCADE',
-          run_id: this.currentRunId
+          run_id: this.currentRunId,
         };
-        
-        if (this.selectedModel === 'PISTIL' && !this.currentRunId) {
-          console.error('[DistanceCorrelation] PISTIL selected but no run_id available!');
-          this.error = 'Run ID is required for PISTIL distance correlation analysis.';
-          return;
+        if (this.selectedObjectives.length) {
+          params.objectives = this.selectedObjectives.join(',');
         }
-        
-        if (this.filePath) {
-          params.file_path = this.filePath;
-        }
-        
+        if (this.filePath) params.file_path = this.filePath;
+
         const response = await getDistanceCorrelation(params);
         this.distanceCorrelations = response;
         
@@ -309,7 +307,7 @@ export default {
         this.objectives.forEach(objective => {
           // Create readable titles
           const varDisplay = this.getVariableDisplayName(variable);
-          const objShortName = objective.split(' ')[0]; // "Energy" or "time"
+          const objShortName = this.getObjectiveShortName(objective);
           
           this.plots.push({
             x: variable,  // Keep original name for mapping

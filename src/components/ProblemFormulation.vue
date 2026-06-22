@@ -214,10 +214,18 @@
         <h3 class="view-title">Load Previous Run</h3>
       </div>
       <div class="load-previous-content">
-        <p class="load-previous-description">Select a previous optimization run to load and analyze:</p>
+        <p class="load-previous-description">
+          Select a previous optimization run to load and analyze:
+        </p>
+
         <div class="form-group">
           <label class="form-label" for="previous-run">Select Run</label>
-          <select id="previous-run" v-model="selectedPreviousRun" class="form-select" :disabled="loadingBackupFiles">
+          <select
+            id="previous-run"
+            v-model="selectedPreviousRun"
+            class="form-select"
+            :disabled="loadingBackupFiles"
+          >
             <option value="">
               {{ loadingBackupFiles ? 'Loading previous runs...' : 'Choose a run...' }}
             </option>
@@ -231,13 +239,6 @@
           <div v-else-if="previousRuns.length === 0" class="no-runs-message">
             No previous optimization runs found.
           </div>
-        </div>
-        
-        <!-- Restart From Previous Run Controls -->
-        <div v-if="loadedRunMetadata" class="form-group">
-          <label class="form-label" for="restart-generations">Generations for Restarted Run</label>
-          <input id="restart-generations" type="number" v-model.number="restartGenerations" min="1" class="form-input" />
-          <small class="form-hint">Starts a new GA run seeded with the loaded designs as the initial population.</small>
         </div>
 
         <!-- Loaded Run Configuration Display -->
@@ -274,31 +275,118 @@
             </div>
           </div>
         </div>
-        
+
+        <!-- ✅ NEW: Objective selector shown after a run is loaded -->
+        <div v-if="loadedRunMetadata" class="form-group loaded-run-objectives">
+          <label class="form-label">
+            Select Objectives to Visualize
+            <span class="form-hint-inline">(up to 3)</span>
+          </label>
+
+          <!-- Error message if over limit -->
+          <div v-if="loadedRunSelectedObjectives.length > 3" class="field-error">
+            You can select at most 3 objectives.
+          </div>
+
+          <div
+            class="custom-multiselect"
+            :class="{ 'error': loadedRunSelectedObjectives.length > 3 }"
+            @click="loadedRunObjectivesDropdownOpen = !loadedRunObjectivesDropdownOpen"
+          >
+            <div class="selected-summary">
+              {{
+                loadedRunSelectedObjectives.length
+                  ? loadedRunSelectedObjectives.join(', ')
+                  : 'Select objectives...'
+              }}
+            </div>
+            <div
+              v-if="loadedRunObjectivesDropdownOpen"
+              class="dropdown-list"
+              @click.stop
+            >
+              <div
+                v-for="obj in loadedRunObjectivesOptions"
+                :key="obj"
+                class="dropdown-item"
+              >
+                <label>
+                  <input
+                    type="checkbox"
+                    :value="obj"
+                    v-model="loadedRunSelectedObjectives"
+                    :disabled="
+                      !loadedRunSelectedObjectives.includes(obj) &&
+                      loadedRunSelectedObjectives.length >= 3
+                    "
+                  />
+                  {{ obj }}
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Helper chips showing what's selected -->
+          <div v-if="loadedRunSelectedObjectives.length" class="selected-chips">
+            <span
+              v-for="obj in loadedRunSelectedObjectives"
+              :key="obj"
+              class="chip"
+            >
+              {{ obj }}
+              <button
+                class="chip-remove"
+                @click.stop="loadedRunSelectedObjectives = loadedRunSelectedObjectives.filter(o => o !== obj)"
+              >×</button>
+            </span>
+          </div>
+        </div>
+
+        <!-- Restart From Previous Run Controls -->
+        <div v-if="loadedRunMetadata" class="form-group">
+          <label class="form-label" for="restart-generations">
+            Generations for Restarted Run
+          </label>
+          <input
+            id="restart-generations"
+            type="number"
+            v-model.number="restartGenerations"
+            min="1"
+            class="form-input"
+          />
+          <small class="form-hint">
+            Starts a new GA run seeded with the loaded designs as the initial population.
+          </small>
+        </div>
+
         <div class="form-actions">
-          <button class="btn btn-primary" :disabled="!selectedPreviousRun" @click="loadPreviousRun">
+          <button
+            class="btn btn-primary"
+            :disabled="!selectedPreviousRun || !canLoadRun"
+            @click="loadPreviousRun"
+          >
             Load Run
           </button>
 
-          <button 
-            class="btn btn-secondary" 
+          <button
+            class="btn btn-secondary"
             :disabled="!loadedRunMetadata || !selectedPreviousRun || loading"
             @click="restartFromPreviousRun"
           >
             Restart From This Run
           </button>
 
-          <button 
-            type="button" 
-            class="btn btn-secondary data-mining-btn" 
+          <button
+            type="button"
+            class="btn btn-secondary data-mining-btn"
             :disabled="!hasOptimizationData"
             @click="runDataMining"
           >
             Data Mining
           </button>
-          <button 
-            type="button" 
-            class="btn btn-secondary generate-report-btn" 
+          <button
+            type="button"
+            class="btn btn-secondary generate-report-btn"
             :disabled="!hasOptimizationData || loading"
             @click="generateReport"
           >
@@ -415,7 +503,7 @@ export default {
     RunForm,
     ComparativeStudy
   },
-  emits: ['optimization-success', 'data-mining-complete', 'report-generated', 'run-id-updated', 'view-changed', 'model-selected'],
+  emits: ['optimization-success', 'data-mining-complete', 'report-generated', 'run-id-updated', 'view-changed', 'model-selected', 'objectives-changed'],
   data() {
     return {
       currentView: 'welcome', // 'welcome', 'new-optimization', 'load-previous', 'comparative'
@@ -498,6 +586,10 @@ export default {
       // Deep RL specific inputs
       deepRLEpisodes: 100,
       deepRLMiniBatchSize: 32,
+      loadedRunSelectedObjectives: [], // NEW: objectives chosen by user when loading a run
+      loadedRunObjectivesDropdownOpen: false, // NEW: dropdown state
+      _suppressObjectiveClear: false,
+      loadingMetadata: false,
     };
   },
   computed: {
@@ -523,10 +615,9 @@ export default {
         return [
           'Energy',
           'Runtime',
-          'Temperature',
-          'Area',
-          'Latency',
-          'Throughput',
+          'DRAM',
+          'Memory',
+          'FLOPS',
         ];
       }
     },
@@ -550,6 +641,34 @@ export default {
     validationSummary() {
       return this.validateForm().errors;
     },
+    loadedRunObjectivesOptions() {
+      const model = this.loadedRunMetadata?.model || 'CASCADE';
+      if (model === 'PISTIL') {
+        return [
+          'Latency per Token',
+          'Energy per Inference',
+          'Energy per Token',
+          'Average Power',
+          'System Power',
+          'System Cost',
+          'Avg Compute Util',
+          'Avg Memory Util',
+          'Prefill Tokens/sec',
+          'System Compute',
+          'System Bandwidth',
+          'System Capacity',
+        ];
+      }
+      return ['Energy', 'Runtime', 'DRAM', 'Memory', 'FLOPS'];
+    },
+    canLoadRun() {
+      return (
+        !!this.selectedPreviousRun &&
+        !!this.loadedRunMetadata &&
+        this.loadedRunSelectedObjectives.length >= 1 &&
+        this.loadedRunSelectedObjectives.length <= 3
+      );
+    },
     
   },
   methods: {
@@ -571,7 +690,10 @@ export default {
 
       // Check objectives selection
       if (!this.selectedObjectives || this.selectedObjectives.length === 0) {
-        errors.objectives = 'At least one objective must be selected';
+        errors.objectives = 'Select between 1 and 3 objectives';
+        isValid = false;
+      } else if (this.selectedObjectives.length > 3) {
+        errors.objectives = 'At most 3 objectives are supported';
         isValid = false;
       }
 
@@ -837,6 +959,29 @@ export default {
       this.isEstimating = false;
       this.loading = false;
     },
+    async fetchRunMetadata(backupFilename) {
+      if (!backupFilename) {
+        this.loadedRunMetadata = null;
+        this.loadedRunSelectedObjectives = [];
+        return;
+      }
+      this.loadingMetadata = true;
+      try {
+        const response = await axios.post('/api/load-previous-run/', {
+          backup_filename: backupFilename,
+          metadata_only: true,
+        });
+        if (response.data.status === 'success') {
+          this.loadedRunMetadata = response.data.metadata;
+          this._loadedRunCache = response.data;
+        }
+      } catch (err) {
+        console.error('Failed to fetch run metadata preview:', err);
+        this.loadedRunMetadata = null;
+      } finally {
+        this.loadingMetadata = false;
+      }
+    },
     async confirmFullFactorialRun() {
       this.loading = true;            
       const params = this._ffParamsCached;
@@ -913,43 +1058,80 @@ export default {
     },
     async loadPreviousRun() {
       if (!this.selectedPreviousRun) return;
+
+      // Validate objective selection BEFORE doing anything
+      if (!this.loadedRunSelectedObjectives ||
+          this.loadedRunSelectedObjectives.length === 0) {
+        this.errorMessage = 'Please select at least one objective before loading.';
+        return;
+      }
+
       this.loading = true;
-      this.hasOptimizationData = false; // Reset data availability when loading previous run
-      this.currentRunId = ''; // Reset current run ID
-      this.loadedRunMetadata = null; // Clear previous metadata
-      
+      this.errorMessage = '';
+      this.hasOptimizationData = false;
+      this.currentRunId = '';
+
       try {
-        // Call the new load_previous_run endpoint
-        const response = await axios.post('/api/load-previous-run/', {
-          backup_filename: this.selectedPreviousRun
-        });
-        
-        if (response.data.status === 'success') {
-          this.loading = false;
-          this.hasOptimizationData = true; // Set data availability
-          this.currentRunId = response.data.run_id; // Set current run ID
-          this.loadedRunMetadata = response.data.metadata; // Store metadata
-          
-          // Emit the loaded data to parent component
-          this.$emit('optimization-success', {
-            data: response.data.points,
-            plot_data: response.data.points,
-            run_directory: response.data.run_id,
-            loaded_from_backup: true,
-            backup_filename: response.data.backup_filename,
-            has_zip_file: response.data.has_zip_file
-          });
-          
-          // Emit run ID update
-          this.$emit('run-id-updated', response.data.run_id);
-          
-          console.log('Successfully loaded previous run:', response.data);
-        } else {
+        // Reuse cached payload from the metadata watcher if available
+        let response = this._loadedRunCache
+          ? { data: this._loadedRunCache }
+          : await axios.post('/api/load-previous-run/', {
+              backup_filename: this.selectedPreviousRun,
+            });
+
+        if (response.data.status !== 'success') {
           throw new Error(response.data.message || 'Failed to load previous run');
         }
+
+        this.loading = false;
+        this.hasOptimizationData = true;
+        this.currentRunId = response.data.run_id;
+        this.loadedRunMetadata = response.data.metadata;
+
+        const evaluator =
+          response.data.evaluator ||
+          response.data.metadata?.model ||
+          (this.selectedPreviousRun.startsWith('pistil_run_') ? 'PISTIL' : 'CASCADE');
+
+        // User's chosen objectives ALWAYS win at this point
+        const objectivesToUse = [...this.loadedRunSelectedObjectives];
+
+        // 1. Set model with watcher-suppression
+        this._suppressObjectiveClear = true;
+        this.selectedModel = evaluator;
+        this.$nextTick(() => { this._suppressObjectiveClear = false; });
+
+        // 2. Sync state
+        this.selectedObjectives = objectivesToUse;
+
+        // 3. Emit objectives FIRST so Plot/DesignVisualizer have correct axes
+        this.$emit('objectives-changed', objectivesToUse);
+        this.$emit('model-selected', evaluator);
+
+        // 4. Emit data load
+        this.$emit('optimization-success', {
+          data:               response.data.data,
+          plot_data:          response.data.data,
+          run_directory:      response.data.run_id,
+          run_id:             response.data.run_id,
+          loaded_from_backup: true,
+          backup_filename:    this.selectedPreviousRun,
+          model:              evaluator,
+          evaluator:          evaluator,
+          pistil_run_id:      evaluator === 'PISTIL' ? response.data.run_id : undefined,
+          objectives:         objectivesToUse,
+        });
+
+        this.$emit('run-id-updated', response.data.run_id);
+
+        console.log('[loadPreviousRun] Loaded with objectives:', objectivesToUse,
+                    'model:', evaluator);
       } catch (error) {
         this.loading = false;
-        this.errorMessage = error.response?.data?.message || error.message || 'Failed to load previous run.';
+        this.errorMessage =
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to load previous run.';
         console.error('Error loading previous run:', error);
       }
     },
@@ -966,27 +1148,39 @@ export default {
           generations: this.restartGenerations,
           traces
         });
-          if (response.data && response.data.status === 'success') {
-            this.loading = false;
-            this.hasOptimizationData = true;
-            this.currentRunId = response.data.run_id; // e.g., restarted_run_*
-            
-            // Use initial points data directly from backend response
-            const initialPoints = response.data.initial_points || [];
-            console.log('Backend returned initial points:', initialPoints.length);
-            
-            // Emit to parent so plot shows original points immediately
-            this.$emit('optimization-success', {
-              data: initialPoints,
-              plot_data: initialPoints,
-              run_directory: response.data.run_id,
-              restarted_from_backup: true,
-              backup_filename: this.selectedPreviousRun
-            });
-            this.$emit('run-id-updated', response.data.run_id);
-          } else {
-          throw new Error(response.data?.message || 'Failed to restart run');
+        if (response.data && response.data.status === 'success') {
+          this.loading = false;
+          this.hasOptimizationData = true;
+          this.currentRunId = response.data.run_id;
+
+          const objectivesToUse =
+            this.loadedRunSelectedObjectives.length > 0
+              ? [...this.loadedRunSelectedObjectives]
+              : (this.loadedRunMetadata?.objectives || []);
+
+          // Sync + emit objectives BEFORE optimization-success (same fix as load)
+          this._suppressObjectiveClear = true;
+          this.selectedModel = this.loadedRunMetadata?.model || this.selectedModel;
+          this.$nextTick(() => { this._suppressObjectiveClear = false; });
+
+          this.selectedObjectives = objectivesToUse;
+          this.$emit('objectives-changed', objectivesToUse);
+
+          const initialPoints = response.data.initial_points || [];
+
+          this.$emit('optimization-success', {
+            data: initialPoints,
+            plot_data: initialPoints,
+            run_directory: response.data.run_id,
+            restarted_from_backup: true,
+            backup_filename: this.selectedPreviousRun,
+            objectives: objectivesToUse,
+          });
+          this.$emit('run-id-updated', response.data.run_id);
         }
+        else {
+        throw new Error(response.data?.message || 'Failed to restart run');
+      }
       } catch (error) {
         console.error('Error restarting from previous run:', error);
         this.errorMessage = error.response?.data?.message || error.message || 'Failed to restart from previous run.';
@@ -1322,17 +1516,23 @@ export default {
   watch: {
     // Clear selected objectives when model changes and notify parent
     selectedModel(newModel, oldModel) {
-      if (newModel !== oldModel) {
-        // Clear selected objectives when switching models
-        if (oldModel) {
-          this.selectedObjectives = [];
-          console.log(`[ProblemFormulation] Model changed from ${oldModel} to ${newModel}, cleared objectives`);
-        } else {
-          console.log(`[ProblemFormulation] Model selected: ${newModel}`);
-        }
-        // Emit model change to parent so Plot can start polling
+      if (newModel === oldModel) return;
+
+      // Skip the auto-clear when loadPreviousRun is intentionally setting
+      // both the model and objectives in one go.
+      if (this._suppressObjectiveClear) {
+        console.log(`[ProblemFormulation] Model set to ${newModel} (objectives preserved)`);
         this.$emit('model-selected', newModel);
+        return;
       }
+
+      if (oldModel) {
+        this.selectedObjectives = [];
+        console.log(`[ProblemFormulation] Model changed from ${oldModel} to ${newModel}, cleared objectives`);
+      } else {
+        console.log(`[ProblemFormulation] Model selected: ${newModel}`);
+      }
+      this.$emit('model-selected', newModel);
     },
     currentView(newView, oldView) {
       // Emit view change event to parent component
@@ -1346,7 +1546,40 @@ export default {
     },
     fullFactorialMode(newVal) {
       // Mode changed - no action needed
-    }
+    },
+    selectedObjectives(newVal, oldVal) {
+      if (newVal && newVal.length > 3) {
+        this.selectedObjectives = oldVal;
+        this.errorMessage = 'You can select at most 3 objectives.';
+        return;
+      }
+      this.$emit('objectives-changed', newVal || []);
+    },
+    // NEW: when metadata is fetched, pre-fill objectives from it
+    loadedRunMetadata(newMeta) {
+      if (newMeta && Array.isArray(newMeta.objectives) && newMeta.objectives.length) {
+        // Pre-populate with saved objectives (capped at 3)
+        this.loadedRunSelectedObjectives = newMeta.objectives.slice(0, 3);
+      } else {
+        this.loadedRunSelectedObjectives = [];
+      }
+      // Close dropdown in case it was left open
+      this.loadedRunObjectivesDropdownOpen = false;
+    },
+    // NEW: enforce 3-objective cap reactively
+    loadedRunSelectedObjectives(newVal) {
+      if (newVal.length > 3) {
+        this.$nextTick(() => {
+          this.loadedRunSelectedObjectives = newVal.slice(0, 3);
+        });
+      }
+    },
+    selectedPreviousRun(newFile, oldFile) {
+      if (newFile !== oldFile) {
+        this._loadedRunCache = null;        // clear cached payload
+        this.fetchRunMetadata(newFile);     // fetch metadata immediately
+      }
+    },
   }
 };
 </script>
@@ -1897,5 +2130,52 @@ export default {
     max-width: 100%;
     min-width: 0;
   }
+}
+
+/* Loaded run objectives selector */
+.loaded-run-objectives {
+  margin-top: 1.25rem;
+}
+
+.form-hint-inline {
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin-left: 0.35rem;
+}
+
+/* Chips for selected objectives */
+.selected-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: #e0eaff;
+  color: #2356b8;
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.chip-remove {
+  background: none;
+  border: none;
+  color: #2356b8;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  margin-left: 0.1rem;
+}
+
+.chip-remove:hover {
+  color: #dc2626;
 }
 </style> 
