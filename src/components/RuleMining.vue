@@ -17,6 +17,10 @@
           <select v-model="selectedRegion" @change="updatePointSelection">
             <option value="pareto">Pareto Front Ranks</option>
             <option value="custom">Custom Selection</option>
+            <option value="highlighted" :disabled="!highlightedIndices.length">
+              Use Highlighted Points
+              <template v-if="!highlightedIndices.length"> (none selected)</template>
+            </option>
             <option value="all">All Points</option>
           </select>
         </div>
@@ -45,7 +49,7 @@
         <div v-if="selectedRegion === 'custom'" class="control-group">
           <label>Custom Selection:</label>
           <div class="custom-inputs">
-            <div class="input-row" v-for="(obj, idx) in selectedObjectives.slice(0, 2)" :key="obj">
+            <div class="input-row" v-for="(obj, idx) in selectedObjectives" :key="obj">
               <span>{{ obj }} Range:</span>
               <input type="number" v-model.number="customRanges[idx].min" placeholder="Min" @change="updatePointSelection" />
               <span>-</span>
@@ -137,37 +141,24 @@ export default {
     HelpTooltip
   },
   props: {
-    filePath: {
-      type: String,
-      default: null
-    },
-    selectedModel: {
-      type: String,
-      default: null
-    },
-    currentRunId: {
-      type: String,
-      default: null
-    },
-    agentResults: {
-      type: Object,
-      default: null
-    },
-    selectedObjectives: {
-      type: Array,
-      default: () => []
-    }
+    filePath: { type: String, default: null },
+    selectedModel: { type: String, default: null },
+    currentRunId: { type: String, default: null },
+    agentResults: { type: Object, default: null },
+    selectedObjectives: { type: Array, default: () => [] },
+    // NEW
+    highlightedIndices: { type: Array, default: () => [] },
   },
   data() {
     return {
       rules: [],
       error: null,
       isRunning: false,
-      selectedRegion: 'pareto',
+      selectedRegion: this.highlightedIndices.length ? 'highlighted' : 'pareto',
       paretoStartRank: 1,
       paretoEndRank: 3,
-      customRanges: Array.from({ length: 3 }, () => ({ min: '', max: '' })),
-      regionSummary: 'Pareto Front Ranks 1 to 3'
+      customRanges: this.selectedObjectives.map(() => ({ min: '', max: '' })),
+      regionSummary: 'Pareto Front Ranks 1 to 3',
     };
   },
   watch: {
@@ -179,30 +170,69 @@ export default {
           this.showResults = true;  // skip to results view
         }
       }
-    }
+    },
+    highlightedIndices: {
+      immediate: false,
+      handler(newVal, oldVal) {
+        // Auto-switch to "highlighted" the first time the user creates a selection
+        if (newVal.length > 0 && (!oldVal || oldVal.length === 0) && this.selectedRegion !== 'highlighted') {
+          this.selectedRegion = 'highlighted';
+        }
+        // If highlights are cleared and we were using them, fall back to pareto
+        if (newVal.length === 0 && this.selectedRegion === 'highlighted') {
+          this.selectedRegion = 'pareto';
+        }
+        this.updatePointSelection();
+      }
+    },
+    selectedObjectives: {
+      immediate: false,
+      handler(newObjs) {
+        // Resize customRanges to match the number of selected objectives
+        while (this.customRanges.length < newObjs.length) {
+          this.customRanges.push({ min: '', max: '' });
+        }
+        this.customRanges.length = newObjs.length;
+      }
+    },
   },
   methods: {
     updatePointSelection() {
+      let summary = '';
       if (this.selectedRegion === 'pareto') {
-        this.regionSummary = `Pareto Front Ranks ${this.paretoStartRank} to ${this.paretoEndRank}`;
+        summary = `Pareto Front Ranks ${this.paretoStartRank} to ${this.paretoEndRank}`;
       } else if (this.selectedRegion === 'custom') {
-        const parts = (this.selectedObjectives || []).map((name, i) => {
-          const r = this.customRanges[i] || {};
-          return `${name}: [${r.min ?? '−∞'}, ${r.max ?? '∞'}]`;
-        });
-        this.regionSummary = `Custom Selection: ${parts.join(', ')}`;
+        summary = `Custom ranges on first two objectives`;
+      } else if (this.selectedRegion === 'highlighted') {
+        summary = `Using ${this.highlightedIndices.length} highlighted points`;
       } else {
-        this.regionSummary = 'All Points';
+        summary = 'All Points';
       }
+      this.regionSummary = summary;
+
+      // For pareto and custom modes, mirror the selection to the plot.
+      // (highlighted mode obviously already matches the plot.)
+      if (this.selectedRegion === 'pareto') {
+        this.$emit('highlight-from-rulemining', { mode: 'pareto', ranks: this.rangeToRanks(this.paretoStartRank, this.paretoEndRank) });
+      } else if (this.selectedRegion === 'custom') {
+        this.$emit('highlight-from-rulemining', {
+          mode: 'custom',
+          ranges: this.customRanges.map(r => ({ min: r.min, max: r.max })),
+        });
+      } else if (this.selectedRegion === 'all') {
+        this.$emit('highlight-from-rulemining', { mode: 'clear' });
+      }
+    },
+    rangeToRanks(start, end) {
+      const out = [];
+      for (let r = start; r <= end; r++) out.push(r);
+      return out;
     },
     async runRuleMining() {
       console.log("=== runRuleMining CALLED ===");
-      console.log("Button clicked!");
       this.isRunning = true;
       this.error = null;
-      console.log("EVALUATOR: ", this.selectedModel);
-      console.log("CURRENT RUN ID: ", this.currentRunId);
-      
+
       try {
         const params = {
           region: this.selectedRegion,
@@ -210,25 +240,72 @@ export default {
           paretoEndRank: this.paretoEndRank,
           evaluator: this.selectedModel,
           run_id: this.currentRunId,
-          // NEW: pass the full objective list (joined for query string)
-          objectives: (this.selectedObjectives || []).join(','),
         };
 
-        // keep individual ranges
-        (this.selectedObjectives || []).forEach((name, i) => {
-          params[`obj${i}_name`] = name;
-          if (this.customRanges[i]?.min !== '') params[`obj${i}_min`] = this.customRanges[i].min;
-          if (this.customRanges[i]?.max !== '') params[`obj${i}_max`] = this.customRanges[i].max;
-        });
+        // Pass ALL selected objectives as a single comma-separated param
+        if (this.selectedObjectives && this.selectedObjectives.length > 0) {
+          params.objectives = this.selectedObjectives.join(',');
+        }
 
-        if (this.filePath) params.file_path = this.filePath;
-        
+        // Custom range inputs — generalize to all objectives, not just first two
+        if (this.selectedRegion === 'custom') {
+          this.selectedObjectives.forEach((objName, idx) => {
+            const range = this.customRanges[idx];
+            if (range) {
+              params[`obj${idx}_min`] = range.min;
+              params[`obj${idx}_max`] = range.max;
+              params[`obj${idx}_name`] = objName;
+            }
+          });
+        }
+
+        // NEW: pass highlighted indices when in "highlighted" mode
+        if (this.selectedRegion === 'highlighted') {
+          if (!this.highlightedIndices || this.highlightedIndices.length === 0) {
+            this.error = "No highlighted points to mine. Please make a selection on the plot first.";
+            this.isRunning = false;
+            return;
+          }
+          params.selected_indices = this.highlightedIndices;
+        }
+
+        if (this.filePath) {
+          params.file_path = this.filePath;
+        }
+
+        // NEW: pass highlighted indices when in "highlighted" mode
+        if (this.selectedRegion === 'highlighted') {
+          if (!this.highlightedIndices || this.highlightedIndices.length === 0) {
+            this.error = "No highlighted points to mine. Please make a selection on the plot first.";
+            this.isRunning = false;
+            return;
+          }
+          params.selected_indices = this.highlightedIndices;
+        }
+
+        if (this.filePath) {
+          params.file_path = this.filePath;
+        }
+
         const response = await getRuleMining(params);
         this.rules = response.rules;
-        
-        // Automatically send rule mining context to chat
+
+        // After successful mining, mirror the selection back to the plot
+        // for pareto/custom modes (highlighted mode obviously already matches).
+        if (this.selectedRegion === 'pareto') {
+          this.$emit('highlight-from-rulemining', {
+            mode: 'pareto',
+            ranks: this.rangeToRanks(this.paretoStartRank, this.paretoEndRank),
+          });
+        } else if (this.selectedRegion === 'custom') {
+          this.$emit('highlight-from-rulemining', {
+            mode: 'custom',
+            ranges: this.customRanges.map(r => ({ min: r.min, max: r.max })),
+            objectives: this.selectedObjectives.slice(0, 2),
+          });
+        }
+
         await this.sendRuleMiningContextToChat(params, response);
-        
       } catch (error) {
         console.error("Error running rule mining:", error);
         this.error = "Failed to run rule mining. Please try again.";

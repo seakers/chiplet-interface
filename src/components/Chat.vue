@@ -62,6 +62,8 @@ export default {
         selectedModel:     { type: String,  default: null },
         run_id:            { type: String,  default: null },
         selectedObjectives: { type: Array,  default: () => [] },
+        highlightedIndices: { type: Array, default: () => [] },
+        traceOrModel:       { type: String,  default: null },
     },
     emits: ["toggle-chat", "highlighting-response"],
     data() {
@@ -125,6 +127,8 @@ export default {
                     evaluator: evaluator,
                     run_id: this.run_id,
                     objectives: this.selectedObjectives,
+                    highlighted_indices: this.highlightedIndices,
+                    trace_or_model: this.traceOrModel,
                 });
 
                 // If backend returns a 'message' field (optimization confirmation), show it immediately
@@ -157,6 +161,9 @@ export default {
                                 this.$emit('agent-dcorr-update', action.data);
                             } else if (action.type === 'update_rule_mining') {
                                 this.$emit('agent-rule-mining-update', action.data);
+                            } else if (action.type === 'create_plot') {
+                                console.log('Chat: Agent triggered plot creation', action.data);
+                                this.$emit('agent-plot-create', action.data);
                             }
                         });
                     }
@@ -184,6 +191,20 @@ export default {
                         } else if (action.type === 'update_rule_mining') {
                             console.log('Chat: Agent triggered rule mining update');
                             this.$emit('agent-rule-mining-update', action.data);
+                        } else if (action.type === 'start_optimization') {
+                            console.log('Chat: Agent started optimization', action.data);
+                            if (action.data && action.data.run_id) {
+                                this.$emit('run-id-updated', action.data.run_id);
+                            }
+                        } else if (action.type === 'report_generated') {
+                            console.log('Chat: Agent generated report', action.data);
+                            this.$emit('report-generated', action.data);
+                        } else if (action.type === 'comparative_analysis_result') {
+                            console.log('Chat: Agent ran comparative analysis', action.data);
+                            this.$emit('comparative-analysis-result', action.data);
+                        } else if (action.type === 'create_plot') {
+                            console.log('Chat: Agent triggered plot creation', action.data);
+                            this.$emit('agent-plot-create', action.data);
                         }
                     });
                 }
@@ -297,7 +318,9 @@ export default {
                 // Send message to backend
                 const response = await sendChat({
                     role: "user",
-                    content: message
+                    content: message,
+                    highlighted_indices: this.highlightedIndices,
+                    trace_or_model: this.traceOrModel,
                 });
 
                 // If backend returns a 'message' field (optimization confirmation), show it immediately
@@ -327,6 +350,20 @@ export default {
                             this.$emit('agent-dcorr-update', action.data);
                         } else if (action.type === 'update_rule_mining') {
                             this.$emit('agent-rule-mining-update', action.data);
+                        } else if (action.type === 'start_optimization') {
+                            console.log('Chat: Agent started optimization', action.data);
+                            if (action.data && action.data.run_id) {
+                                this.$emit('run-id-updated', action.data.run_id);
+                            }
+                        } else if (action.type === 'report_generated') {
+                            console.log('Chat: Agent generated report', action.data);
+                            this.$emit('report-generated', action.data);
+                        } else if (action.type === 'comparative_analysis_result') {
+                            console.log('Chat: Agent ran comparative analysis', action.data);
+                            this.$emit('comparative-analysis-result', action.data);
+                        } else if (action.type === 'create_plot') {
+                            console.log('Chat: Agent triggered plot creation', action.data);
+                            this.$emit('agent-plot-create', action.data);
                         }
                     });
                 }
@@ -347,7 +384,8 @@ export default {
                 // Send prompt to backend without adding to chat history
                 const response = await sendChat({
                     role: "user",
-                    content: prompt
+                    content: prompt,
+                    trace_or_model: this.traceOrModel,
                 });
 
                 // Only show the AI response, not the prompt

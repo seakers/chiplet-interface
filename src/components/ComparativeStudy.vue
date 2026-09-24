@@ -20,7 +20,6 @@
           ref="runSelectorA"
           :runLabel="'A'"
           @run-selected="handleRunASelected"
-          @run-config-updated="handleRunAConfigUpdated"
         />
       </div>
       
@@ -30,8 +29,18 @@
           ref="runSelectorB"
           :runLabel="'B'"
           @run-selected="handleRunBSelected"
-          @run-config-updated="handleRunBConfigUpdated"
         />
+      </div>
+    </div>
+
+    <div v-if="hasResults" class="objective-selection">
+      <label>Objectives for Comparison (select 1–3):</label>
+      <div class="checkbox-group">
+        <label v-for="obj in availableObjectives" :key="obj" class="checkbox-option">
+          <input type="checkbox" :value="obj" v-model="selectedObjectives"
+                :disabled="!selectedObjectives.includes(obj) && selectedObjectives.length >= 3" />
+          <span>{{ obj }}</span>
+        </label>
       </div>
     </div>
 
@@ -80,7 +89,6 @@
       <ComparativeResults 
         :runAData="runA.data"
         :runBData="runB.data"
-        :miningResults="miningResults"
       />
     </div>
 
@@ -96,308 +104,144 @@
 <script>
 import RunSelector from './RunSelector.vue';
 import ComparativeResults from './ComparativeResults.vue';
-import { runComparativeAnalysis, loadPreviousRunForComparison, generateComparativeReport } from '../services/comparativeAnalysis.js';
+import { runComparativeAnalysis, generateComparativeReport } from '../services/comparativeAnalysis.js';
 
 export default {
   name: 'ComparativeStudy',
-  components: {
-    RunSelector,
-    ComparativeResults
-  },
+  components: { RunSelector, ComparativeResults },
+  emits: ['back', 'report-generated'],
   data() {
     return {
-      runA: {
-        type: null,        // 'previous' or 'new'
-        config: null,      // selected run or form data
-        data: null,        // optimization results
-        status: 'idle'     // 'idle', 'running', 'completed', 'failed'
-      },
-      runB: {
-        type: null,
-        config: null,
-        data: null,
-        status: 'idle'
-      },
+      runA: { type: null, config: null, data: null, status: 'idle' },
+      runB: { type: null, config: null, data: null, status: 'idle' },
       isLoading: false,
       errors: [],
-      miningResults: null,
       progressMessage: '',
-      analysisStartTime: null
+      analysisStartTime: null,
+      selectedObjectives: [],
     };
   },
   computed: {
     canRunAnalysis() {
-      return this.runA.config && this.runB.config && this.errors.length === 0;
+      return this.runA.config && this.runB.config && this.errors.length === 0 && !this.isLoading;
     },
     hasResults() {
       return this.runA.data && this.runB.data;
     },
     analysisDuration() {
-      if (!this.analysisStartTime) return null;
-      const duration = Date.now() - this.analysisStartTime;
-      return Math.round(duration / 1000);
-    }
+      return this.analysisStartTime
+        ? Math.round((Date.now() - this.analysisStartTime) / 1000)
+        : null;
+    },
+    availableObjectives() {
+      const model = this.runA.config?.model || this.runB.config?.model;
+      if (model === 'PISTIL') {
+        return ['Latency per Token','Energy per Inference','Energy per Token',
+                'Average Power','System Power','System Cost','Avg Compute Util',
+                'Avg Memory Util','Prefill Tokens/sec','System Compute',
+                'System Bandwidth','System Capacity'];
+      }
+      return ['Energy','Runtime','DRAM','Memory','FLOPS'];
+    },
   },
   methods: {
     handleRunASelected(runData) {
-      if (!runData) {
-        // Clear the run data when null is passed
-        this.runA.type = null;
-        this.runA.config = null;
-        this.runA.status = 'idle';
-        this.validateRuns();
-        return;
-      }
-      
-      this.runA.type = runData.type;
-      this.runA.config = runData.config;
-      this.runA.status = 'idle';
+      Object.assign(this.runA, runData
+        ? { type: runData.type, config: runData.config, status: 'idle' }
+        : { type: null, config: null, status: 'idle' });
       this.validateRuns();
     },
-    
     handleRunBSelected(runData) {
-      if (!runData) {
-        // Clear the run data when null is passed
-        this.runB.type = null;
-        this.runB.config = null;
-        this.runB.status = 'idle';
-        this.validateRuns();
-        return;
-      }
-      
-      this.runB.type = runData.type;
-      this.runB.config = runData.config;
-      this.runB.status = 'idle';
+      Object.assign(this.runB, runData
+        ? { type: runData.type, config: runData.config, status: 'idle' }
+        : { type: null, config: null, status: 'idle' });
       this.validateRuns();
     },
-    
-    handleRunAConfigUpdated(config) {
-      if (!config) {
-        this.runA.config = null;
-      } else {
-        this.runA.config = config;
-      }
-      this.validateRuns();
-    },
-    
-    handleRunBConfigUpdated(config) {
-      if (!config) {
-        this.runB.config = null;
-      } else {
-        this.runB.config = config;
-      }
-      this.validateRuns();
-    },
-    
+
     validateRuns() {
       this.errors = [];
-      
-      // Check if both runs are selected
-      if (!this.runA.config || !this.runB.config) {
-        return; // Don't show error until both are configured
-      }
-      
-      // Check for same run selection (only for previous runs)
-      if (this.runA.type === 'previous' && this.runB.type === 'previous') {
-        if (this.runA.config.backup_filename === this.runB.config.backup_filename) {
-          this.errors.push("You can't choose same runs for comparison. Please select different runs.");
-          return;
-        }
-      }
-      
-      // Check for identical configurations (only for new runs)
-      if (this.runA.type === 'new' && this.runB.type === 'new') {
-        if (JSON.stringify(this.runA.config) === JSON.stringify(this.runB.config)) {
-          this.errors.push("Both runs have identical configurations. Please modify one of the runs for meaningful comparison.");
-          return;
-        }
-      }
-      
-      // Additional validation for new runs
-      if (this.runA.type === 'new' && this.runA.config) {
-        this.validateNewRunConfig(this.runA.config, 'Run A');
-      }
-      if (this.runB.type === 'new' && this.runB.config) {
-        this.validateNewRunConfig(this.runB.config, 'Run B');
-      }
-    },
-    
-    validateNewRunConfig(config, runLabel) {
-      if (!config) {
-        this.errors.push(`${runLabel}: Configuration is required.`);
+      if (!this.runA.config || !this.runB.config) return;
+
+      // Same-file check for previous runs
+      if (this.runA.type === 'previous' && this.runB.type === 'previous'
+          && this.runA.config.backup_filename === this.runB.config.backup_filename) {
+        this.errors.push("Please select two different runs.");
         return;
       }
-      
-      if (!config.model) {
-        this.errors.push(`${runLabel}: Model selection is required.`);
+
+      // Identical new-run configs
+      if (this.runA.type === 'new' && this.runB.type === 'new'
+          && JSON.stringify(this.runA.config) === JSON.stringify(this.runB.config)) {
+        this.errors.push("Both runs have identical configurations. Vary at least one setting.");
+        return;
       }
-      
-      if (!config.algorithm) {
-        this.errors.push(`${runLabel}: Algorithm selection is required.`);
-      }
-      
-      if (!config.objectives || config.objectives.length === 0) {
-        this.errors.push(`${runLabel}: At least one objective must be selected.`);
-      }
-      
-      // Only validate traces for new runs, not previous runs
-      if (config.type === 'new') {
-        if (!config.traces || config.traces.length === 0) {
-          this.errors.push(`${runLabel}: At least one trace must be selected.`);
-        } else {
-          // Check trace weights sum
-          const weightSum = config.traces.reduce((sum, trace) => sum + (trace.weight || 0), 0);
-          if (Math.abs(weightSum - 1.0) > 0.01) {
-            this.errors.push(`${runLabel}: Sum of trace weights must equal 1.00 (current: ${weightSum.toFixed(2)}).`);
-          }
-        }
-      }
-      
-      if (config.algorithm === 'Genetic Algorithm') {
-        if (!config.population_size || config.population_size < 10) {
-          this.errors.push(`${runLabel}: Population size must be at least 10.`);
-        }
-        if (!config.generations || config.generations < 10) {
-          this.errors.push(`${runLabel}: Number of generations must be at least 10.`);
-        }
-      }
-      
-      if (config.algorithm === 'Full-Factorial') {
-        if (!config.grid_size || config.grid_size < 5) {
-          this.errors.push(`${runLabel}: Grid size must be at least 5.`);
-        }
+
+      // Cross-evaluator comparison disallowed (report generator warns about this) [7]
+      const modelA = this.runA.config.model;
+      const modelB = this.runB.config.model;
+      if (modelA && modelB && modelA !== modelB) {
+        this.errors.push(
+          `Cannot compare runs across different evaluators (Run A: ${modelA}, Run B: ${modelB}). ` +
+          `Please select two runs using the same evaluator.`
+        );
       }
     },
-    
+
     async runComparativeAnalysis() {
       if (!this.canRunAnalysis) return;
-      
+
       this.isLoading = true;
       this.analysisStartTime = Date.now();
-      this.runA.status = 'running';
-      this.runB.status = 'running';
-      this.errors = []; // Clear previous errors
-      this.progressMessage = 'Initializing comparative analysis...';
-      
-      // Update RunSelector status
-      if (this.$refs.runSelectorA) {
-        this.$refs.runSelectorA.setRunStatus('running');
-      }
-      if (this.$refs.runSelectorB) {
-        this.$refs.runSelectorB.setRunStatus('running');
-      }
-      
+      this.errors = [];
+      this.runA.status = this.runB.status = 'running';
+      this.progressMessage = 'Running comparative analysis...';
+
+      this.$refs.runSelectorA?.setRunStatus('running');
+      this.$refs.runSelectorB?.setRunStatus('running');
+
       try {
-        // Prepare configurations for API
-        const runAConfig = this.prepareRunConfig(this.runA);
-        const runBConfig = this.prepareRunConfig(this.runB);
-        
-        this.progressMessage = 'Running parallel optimization...';
-        
-        // Run comparative analysis
-        const results = await runComparativeAnalysis(runAConfig, runBConfig);
-        
-        // Update results
+        const results = await runComparativeAnalysis(
+          { type: this.runA.type, ...this.runA.config },
+          { type: this.runB.type, ...this.runB.config }
+        );
+
         this.runA.data = results.runA;
         this.runB.data = results.runB;
-        this.miningResults = results.mining;
-        
-        this.runA.status = 'completed';
-        this.runB.status = 'completed';
-        
-        // Update RunSelector status
-        if (this.$refs.runSelectorA) {
-          this.$refs.runSelectorA.setRunStatus('completed');
-        }
-        if (this.$refs.runSelectorB) {
-          this.$refs.runSelectorB.setRunStatus('completed');
-        }
-        
-        this.progressMessage = `Analysis completed successfully in ${this.analysisDuration} seconds!`;
-        
-        console.log('Comparative analysis completed successfully!', results);
-        
-      } catch (error) {
-        console.error('Comparative analysis failed:', error);
-        this.errors.push(`Comparative analysis failed: ${error.message}`);
-        this.runA.status = 'failed';
-        this.runB.status = 'failed';
-        
-        // Update RunSelector status
-        if (this.$refs.runSelectorA) {
-          this.$refs.runSelectorA.setRunStatus('failed');
-        }
-        if (this.$refs.runSelectorB) {
-          this.$refs.runSelectorB.setRunStatus('failed');
-        }
-        
-        this.progressMessage = 'Analysis failed. Please check the error messages above.';
+        this.runA.status = this.runB.status = 'completed';
+        this.$refs.runSelectorA?.setRunStatus('completed');
+        this.$refs.runSelectorB?.setRunStatus('completed');
+        this.progressMessage = `Analysis completed in ${this.analysisDuration}s.`;
+      } catch (err) {
+        console.error('Comparative analysis failed:', err);
+        this.errors.push(err.message || 'Analysis failed.');
+        this.runA.status = this.runB.status = 'failed';
+        this.$refs.runSelectorA?.setRunStatus('failed');
+        this.$refs.runSelectorB?.setRunStatus('failed');
+        this.progressMessage = 'Analysis failed. See errors above.';
       } finally {
         this.isLoading = false;
       }
     },
-    
-    prepareRunConfig(run) {
-      if (run.type === 'previous') {
-        return {
-          type: 'previous',
-          backup_filename: run.config.backup_filename,
-          display_name: run.config.display_name,
-          timestamp: run.config.timestamp
-        };
-      } else {
-        return {
-          type: 'new',
-          model: run.config.model,
-          algorithm: run.config.algorithm,
-          population_size: run.config.population_size,
-          generations: run.config.generations,
-          grid_size: run.config.grid_size,
-          objectives: run.config.objectives,
-          traces: run.config.traces.map(trace => ({
-            name: trace.name,
-            weight: trace.weight
-          }))
-        };
-      }
-    },
-    
-    async openDataMining() {
-      if (!this.hasResults) return;
-      
-      try {
-        // Emit event to parent for data mining display
-        this.$emit('open-data-mining', this.miningResults);
-      } catch (error) {
-        console.error('Error opening data mining:', error);
-        this.errors.push(`Failed to open data mining: ${error.message}`);
-      }
-    },
-    
+
     async generateComparativeReport() {
       if (!this.hasResults) return;
-      
+      if (this.selectedObjectives.length < 1 || this.selectedObjectives.length > 3) {
+        this.errors.push('Please select 1–3 objectives for the comparison report.');
+        return;
+      }
       try {
         this.progressMessage = 'Generating comparative report...';
-        
         const report = await generateComparativeReport(
-          this.runA.data,
-          this.runB.data,
-          this.miningResults
+          this.runA.data, this.runB.data, this.selectedObjectives   // NEW
         );
-        
-        // Emit report to parent
         this.$emit('report-generated', report);
-        
-        this.progressMessage = 'Report generated successfully!';
-        
-      } catch (error) {
-        console.error('Error generating comparative report:', error);
-        this.errors.push(`Failed to generate report: ${error.message}`);
+        this.progressMessage = 'Report generated.';
+      } catch (err) {
+        this.errors.push(`Failed to generate report: ${err.message}`);
         this.progressMessage = 'Report generation failed.';
       }
-    }
-  }
+    },
+  },
 };
 </script>
 

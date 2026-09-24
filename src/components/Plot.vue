@@ -47,7 +47,7 @@ const pointDropdownRef = ref(null);
 const legendRef = ref(null);
 const isLegendDragging = ref(false);
 const legendDragOffset = ref({ x: 0, y: 0 });
-const emit = defineEmits(["point-message", "point-selected", "point-hovered"]);
+const emit = defineEmits(["point-message", "point-selected", "point-hovered", "highlights-changed"]);
 
 const props = defineProps({
   isEvaluatingDesign: {
@@ -327,64 +327,338 @@ const mixColors = (colors) => {
 
 // Region selection control methods
 const applyRectangularRegion = (regionData) => {
-  regionSelection.value.rectangular.energyMin = regionData.energyMin;
-  regionSelection.value.rectangular.energyMax = regionData.energyMax;
-  regionSelection.value.rectangular.timeMin = regionData.timeMin;
-  regionSelection.value.rectangular.timeMax = regionData.timeMax;
-  regionSelection.value.rectangular.active = true;
+  // regionData fields are obj0Min/obj0Max/obj1Min/obj1Max from App.vue
+  const { obj0Min, obj0Max, obj1Min, obj1Max } = regionData;
+  const indices = [];
+  allPoints.value.forEach((pt, i) => {
+    if (!pt) return;
+    const xOk = (obj0Min == null || pt.x >= obj0Min) && (obj0Max == null || pt.x <= obj0Max);
+    const yOk = (obj1Min == null || pt.y >= obj1Min) && (obj1Max == null || pt.y <= obj1Max);
+    if (xOk && yOk) indices.push(i);
+  });
+  highlightedPoints.value = indices;
   updateChart();
+  emit('highlights-changed', indices);
 };
 
 const clearRectangularRegion = () => {
-  regionSelection.value.rectangular.active = false;
-  regionSelection.value.rectangular.energyMin = null;
-  regionSelection.value.rectangular.energyMax = null;
-  regionSelection.value.rectangular.timeMin = null;
-  regionSelection.value.rectangular.timeMax = null;
+  highlightedPoints.value = [];
   updateChart();
-};
-
-const clearAllRegions = () => {
-  regionSelection.value.rectangular.active = false;
-  regionSelection.value.pareto.active = false;
-  regionSelection.value.manual.active = false;
-  regionSelection.value.rectangular.energyMin = null;
-  regionSelection.value.rectangular.energyMax = null;
-  regionSelection.value.rectangular.timeMin = null;
-  regionSelection.value.rectangular.timeMax = null;
-  regionSelection.value.manual.points = [];
-  updateChart();
+  emit('highlights-changed', []);
 };
 
 const toggleRegionSelection = () => {
   showRegionPanel.value = !showRegionPanel.value;
 };
 
-// Pareto region controls
 const applyParetoRegion = (ranks) => {
-  regionSelection.value.pareto.active = Array.isArray(ranks) && ranks.length > 0;
-  regionSelection.value.pareto.ranks = ranks || [];
+  if (!Array.isArray(ranks) || ranks.length === 0) {
+    highlightedPoints.value = [];
+    updateChart();
+    emit('highlights-changed', []);
+    return;
+  }
+  // Build objective array from currently selected axes
+  const xField = getFieldForAxis(selectedXAxis.value);
+  const yField = getFieldForAxis(selectedYAxis.value);
+  const objArr = allPoints.value.map(pt => [
+    Number(pt[xField] ?? pt.x ?? 0),
+    Number(pt[yField] ?? pt.y ?? 0),
+  ]);
+  const maxRank = Math.max(...ranks);
+  const computed = computeParetoRanksJS(objArr, maxRank); // returns array of ranks (1-indexed)
+  const indices = [];
+  computed.forEach((r, i) => {
+    if (r > 0 && ranks.includes(r)) indices.push(i);
+  });
+  highlightedPoints.value = indices;
   updateChart();
+  emit('highlights-changed', indices);
 };
 
 const clearParetoRegion = () => {
-  regionSelection.value.pareto.active = false;
-  regionSelection.value.pareto.ranks = [];
+  highlightedPoints.value = [];
   updateChart();
+  emit('highlights-changed', []);
 };
 
-// Manual selection controls (placeholder hooks)
+const clearAllRegions = () => {
+  highlightedPoints.value = [];
+  updateChart();
+  emit('highlights-changed', []);
+};
+
+// === Manual selection modes ===
+// 'off'   – chart is fully interactive, no selection
+// 'click' – click toggles a single point's highlight (existing behavior)
+// 'box'   – click-drag a rectangle, on release all points inside get highlighted
+// 'lasso' – click-drag a freehand path, on release points inside the closed path get highlighted
+const selectionMode = ref('off');
+const overlayRef = ref(null);
+
+// Drawing state
+const isDrawing = ref(false);
+const boxStart = ref(null);           // {x, y} in canvas px
+const boxCurrent = ref(null);         // {x, y} in canvas px
+const lassoPoints = ref([]);          // [{x, y}, ...] in canvas px
+const shiftHeld = ref(false);         // for additive selection
+
+const setSelectionMode = (mode) => {
+  selectionMode.value = mode;
+  // Keep the older `manualSelectionActive` flag in sync so the chart onClick
+  // continues to behave like click-toggle when mode === 'click'.
+  manualSelectionActive.value = (mode === 'click');
+  // Clear any in-progress drawing
+  isDrawing.value = false;
+  boxStart.value = null;
+  boxCurrent.value = null;
+  lassoPoints.value = [];
+  redrawOverlay();
+  syncOverlaySize();
+};
+
+// Manual selection — toggle a "selecting" mode
+const manualSelectionActive = ref(false);
 const startManualSelection = () => {
-  // Future: enable click-to-select on chart
-  regionSelection.value.manual.active = true;
+  manualSelectionActive.value = !manualSelectionActive.value;
+  console.log('Manual selection mode:', manualSelectionActive.value);
+};
+const clearManualSelection = () => {
+  manualSelectionActive.value = false;
+  highlightedPoints.value = [];
   updateChart();
+  emit('highlights-changed', []);
 };
 
-const clearManualSelection = () => {
-  regionSelection.value.manual.active = false;
-  regionSelection.value.manual.points = [];
-  updateChart();
+// Helper: get cursor position relative to overlay canvas (in canvas px)
+const getCanvasPos = (event) => {
+  const canvas = overlayRef.value;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = canvas.width / rect.width;
+  const scaleY = canvas.height / rect.height;
+  return {
+    x: (event.clientX - rect.left) * scaleX,
+    y: (event.clientY - rect.top) * scaleY,
+  };
 };
+
+const onOverlayMouseDown = (event) => {
+  if (selectionMode.value === 'off' || selectionMode.value === 'click') return;
+
+  shiftHeld.value = event.shiftKey;
+  isDrawing.value = true;
+  const pos = getCanvasPos(event);
+
+  if (selectionMode.value === 'box') {
+    boxStart.value = pos;
+    boxCurrent.value = pos;
+  } else if (selectionMode.value === 'lasso') {
+    lassoPoints.value = [pos];
+  }
+  redrawOverlay();
+};
+
+const onOverlayMouseMove = (event) => {
+  if (!isDrawing.value) return;
+  const pos = getCanvasPos(event);
+
+  if (selectionMode.value === 'box') {
+    boxCurrent.value = pos;
+  } else if (selectionMode.value === 'lasso') {
+    // Throttle: only add points if moved at least ~2 px from last point
+    const last = lassoPoints.value[lassoPoints.value.length - 1];
+    if (!last || Math.hypot(pos.x - last.x, pos.y - last.y) > 2) {
+      lassoPoints.value.push(pos);
+    }
+  }
+  redrawOverlay();
+};
+
+const onOverlayMouseUp = (event) => {
+  if (!isDrawing.value) return;
+  isDrawing.value = false;
+
+  if (selectionMode.value === 'box') {
+    finalizeBoxSelection();
+  } else if (selectionMode.value === 'lasso') {
+    finalizeLassoSelection();
+  }
+
+  // Clear the drawing visuals
+  boxStart.value = null;
+  boxCurrent.value = null;
+  lassoPoints.value = [];
+  redrawOverlay();
+};
+
+// Convert a single point (data coords) to canvas pixel coords.
+// Returns null if the chart isn't ready or point is invalid.
+const pointToCanvasPx = (pt) => {
+  if (!chartInstance || !pt) return null;
+  const xField = getFieldForAxis(selectedXAxis.value);
+  const yField = getFieldForAxis(selectedYAxis.value);
+  const xVal = pt[xField] !== undefined ? Number(pt[xField]) : Number(pt.x);
+  const yVal = pt[yField] !== undefined ? Number(pt[yField]) : Number(pt.y);
+  if (!isFinite(xVal) || !isFinite(yVal)) return null;
+  const xScale = chartInstance.scales.x;
+  const yScale = chartInstance.scales.y;
+  if (!xScale || !yScale) return null;
+  // getPixelForValue returns CSS px relative to the canvas; multiply by devicePixelRatio
+  // for canvas-internal coords (which is what overlay uses).
+  const dpr = window.devicePixelRatio || 1;
+  return {
+    x: xScale.getPixelForValue(xVal) * dpr,
+    y: yScale.getPixelForValue(yVal) * dpr,
+  };
+};
+
+const finalizeBoxSelection = () => {
+  if (!boxStart.value || !boxCurrent.value) return;
+  const x0 = Math.min(boxStart.value.x, boxCurrent.value.x);
+  const x1 = Math.max(boxStart.value.x, boxCurrent.value.x);
+  const y0 = Math.min(boxStart.value.y, boxCurrent.value.y);
+  const y1 = Math.max(boxStart.value.y, boxCurrent.value.y);
+
+  // Ignore tiny accidental drags (less than 4 canvas px on either axis)
+  if ((x1 - x0) < 4 && (y1 - y0) < 4) return;
+
+  const newIndices = [];
+  allPoints.value.forEach((pt, i) => {
+    const px = pointToCanvasPx(pt);
+    if (!px) return;
+    if (px.x >= x0 && px.x <= x1 && px.y >= y0 && px.y <= y1) {
+      newIndices.push(i);
+    }
+  });
+
+  commitSelection(newIndices);
+};
+
+const finalizeLassoSelection = () => {
+  const path = lassoPoints.value;
+  if (path.length < 3) return;  // need a real polygon
+
+  const newIndices = [];
+  allPoints.value.forEach((pt, i) => {
+    const px = pointToCanvasPx(pt);
+    if (!px) return;
+    if (pointInPolygon(px, path)) {
+      newIndices.push(i);
+    }
+  });
+
+  commitSelection(newIndices);
+};
+
+/**
+ * Ray-casting point-in-polygon test.
+ * `point` = {x, y}, `polygon` = [{x, y}, ...]
+ */
+function pointInPolygon(point, polygon) {
+  let inside = false;
+  const n = polygon.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = polygon[i].x, yi = polygon[i].y;
+    const xj = polygon[j].x, yj = polygon[j].y;
+    const intersect =
+      ((yi > point.y) !== (yj > point.y)) &&
+      (point.x < ((xj - xi) * (point.y - yi)) / (yj - yi + 1e-12) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+/**
+ * Commit a freshly computed selection to highlightedPoints.
+ * Honors Shift = additive, plain = replace. Emits upward so App.vue's
+ * highlightedIndices stays in sync, and rule mining / dCor see the change.
+ */
+const commitSelection = (newIndices) => {
+  if (shiftHeld.value) {
+    const merged = new Set([...highlightedPoints.value, ...newIndices]);
+    highlightedPoints.value = Array.from(merged).sort((a, b) => a - b);
+  } else {
+    highlightedPoints.value = [...newIndices];
+  }
+  emit('highlights-changed', [...highlightedPoints.value]);
+  updateChart();
+  console.log(
+    `[Plot] commitSelection: ${newIndices.length} new (${shiftHeld.value ? 'additive' : 'replace'}) → ${highlightedPoints.value.length} total highlighted`
+  );
+};
+
+const redrawOverlay = () => {
+  const overlay = overlayRef.value;
+  if (!overlay) return;
+  const ctx = overlay.getContext('2d');
+  ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+  if (!isDrawing.value) return;
+
+  // Common visual style for both shapes
+  ctx.lineWidth = 2 * (window.devicePixelRatio || 1);
+  ctx.strokeStyle = '#337aff';
+  ctx.fillStyle = 'rgba(51, 122, 255, 0.12)';
+
+  if (selectionMode.value === 'box' && boxStart.value && boxCurrent.value) {
+    const x = Math.min(boxStart.value.x, boxCurrent.value.x);
+    const y = Math.min(boxStart.value.y, boxCurrent.value.y);
+    const w = Math.abs(boxCurrent.value.x - boxStart.value.x);
+    const h = Math.abs(boxCurrent.value.y - boxStart.value.y);
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeRect(x, y, w, h);
+  } else if (selectionMode.value === 'lasso' && lassoPoints.value.length > 1) {
+    ctx.beginPath();
+    ctx.moveTo(lassoPoints.value[0].x, lassoPoints.value[0].y);
+    for (let i = 1; i < lassoPoints.value.length; i++) {
+      ctx.lineTo(lassoPoints.value[i].x, lassoPoints.value[i].y);
+    }
+    // Close path visually with a dashed line back to start
+    ctx.stroke();
+    ctx.save();
+    ctx.setLineDash([6, 4]);
+    ctx.beginPath();
+    ctx.moveTo(lassoPoints.value[lassoPoints.value.length - 1].x, lassoPoints.value[lassoPoints.value.length - 1].y);
+    ctx.lineTo(lassoPoints.value[0].x, lassoPoints.value[0].y);
+    ctx.stroke();
+    ctx.restore();
+    // Fill the (auto-closed) polygon
+    ctx.beginPath();
+    ctx.moveTo(lassoPoints.value[0].x, lassoPoints.value[0].y);
+    for (let i = 1; i < lassoPoints.value.length; i++) {
+      ctx.lineTo(lassoPoints.value[i].x, lassoPoints.value[i].y);
+    }
+    ctx.closePath();
+    ctx.fill();
+  }
+};
+
+// Lightweight JS Pareto-rank helper (2D minimization).
+function computeParetoRanksJS(objArr, maxRank) {
+  const n = objArr.length;
+  const ranks = new Array(n).fill(0);
+  let remaining = objArr.map((v, i) => ({ i, x: v[0], y: v[1] }));
+  let rank = 1;
+  while (remaining.length > 0 && rank <= maxRank) {
+    const front = [];
+    for (const p of remaining) {
+      let dominated = false;
+      for (const q of remaining) {
+        if (q.i === p.i) continue;
+        if (q.x <= p.x && q.y <= p.y && (q.x < p.x || q.y < p.y)) {
+          dominated = true; break;
+        }
+      }
+      if (!dominated) front.push(p);
+    }
+    if (front.length === 0) break;
+    const frontIds = new Set(front.map(p => p.i));
+    front.forEach(p => { ranks[p.i] = rank; });
+    remaining = remaining.filter(p => !frontIds.has(p.i));
+    rank++;
+  }
+  return ranks;
+}
 
 
 function getColorForPoint(point, pointIndex = null) {
@@ -455,8 +729,8 @@ function getColorForPoint(point, pointIndex = null) {
         return '#2ca02c'; // green (already there, but move it here for safety)
     if (alg.includes('genetic')) 
         return '#1f77b4'; // blue for GA
-    if (alg.includes('user'))
-        return '#881282'; // blue for GA
+    if (alg.includes('user') || alg.includes('custom') || alg.includes('manual'))
+        return customColor;
   }
   return palette[0];
 }
@@ -478,7 +752,9 @@ function getLegendEntries() {
   // GA and custom design legends
   allPoints.value.forEach((pt) => {
     let key, label, color;
-    if (pt.source === 'Manual' || pt.label === 'Custom Design') {
+    const alg = (pt.algorithm || '').toLowerCase();
+    
+    if (pt.source === 'Manual' || pt.label === 'Custom Design' || alg.includes('custom') || alg.includes('user')) {
       key = 'Custom Design';
       label = 'Custom Design';
       color = customColor;
@@ -657,9 +933,12 @@ function buildChartData() {
     .filter(pt => pt && typeof pt === 'object')
     .map(pt => {
       // Get x and y values from the selected fields, fallback to pt.x/pt.y
-      const xValue = pt[xField] !== undefined ? pt[xField] : pt.x;
-      const yValue = pt[yField] !== undefined ? pt[yField] : pt.y;
-      
+      // const xValue = pt[xField] !== undefined ? pt[xField] : pt.x;
+      // const yValue = pt[yField] !== undefined ? pt[yField] : pt.y;
+      const xValue = pt[xField];
+      const yValue = pt[yField];
+
+
       if (xValue === undefined || yValue === undefined) {
         return null;
       }
@@ -1102,6 +1381,18 @@ const createChart = () => {
                 });
                 
                 console.log('Global index found:', globalIndex);
+
+                // === Manual highlight selection: click-to-toggle ===
+                if (selectionMode.value === 'click' && globalIndex !== -1) {
+                  const current = [...highlightedPoints.value];
+                  const idx = current.indexOf(globalIndex);
+                  if (idx === -1) current.push(globalIndex);
+                  else current.splice(idx, 1);
+                  highlightedPoints.value = current;
+                  emit('highlights-changed', current);
+                  updateChart();
+                  return;
+                }
                 
                 // Toggle selection: if clicking the same point, deselect it; otherwise select the new point
                 if (globalIndex !== -1) {
@@ -1184,6 +1475,19 @@ const createChart = () => {
     });
 };
 
+const syncOverlaySize = () => {
+  const chartCanvas = chartRef.value;
+  const overlay = overlayRef.value;
+  if (!chartCanvas || !overlay) return;
+  const rect = chartCanvas.getBoundingClientRect();
+  overlay.width = chartCanvas.width;        // internal px
+  overlay.height = chartCanvas.height;
+  overlay.style.width = rect.width + 'px';  // CSS px
+  overlay.style.height = rect.height + 'px';
+  overlay.style.left = chartCanvas.offsetLeft + 'px';
+  overlay.style.top = chartCanvas.offsetTop + 'px';
+};
+
 function updateChart() {
   console.log('=== updateChart START ===');
   console.log('Chart instance exists:', !!chartInstance);
@@ -1209,6 +1513,7 @@ function updateChart() {
     chartInstance.data.datasets.length = newDataSets.length;
     console.log('Updating chart with new data');
     chartInstance.update();
+    nextTick(() => syncOverlaySize());
     console.log('Chart update completed');
   } else {
     console.log('No chart instance available for update');
@@ -1299,6 +1604,8 @@ const updateChartData = (newChartData, traceMetadata = null) => {
     return;
   }
 
+  console.log("NEW CHART DATA")
+  console.log(newChartData)
   const defaultAlgorithm = (newChartData.metadata?.algorithm) || lastAlgorithm.value || 'Genetic Algorithm';
   
   // Update lastAlgorithm if provided in metadata
@@ -1552,6 +1859,21 @@ const stopDrag = () => {
     document.removeEventListener('mouseup', stopDrag);
 };
 
+const onKeyDown = (e) => {
+  if (e.key === 'Escape' && selectionMode.value !== 'off') {
+    if (isDrawing.value) {
+      isDrawing.value = false;
+      boxStart.value = null;
+      boxCurrent.value = null;
+      lassoPoints.value = [];
+      redrawOverlay();
+    } else {
+      setSelectionMode('off');
+    }
+  }
+  if (e.key === 'Shift') shiftHeld.value = true;
+};
+
 // Legend drag functionality
 const startLegendDrag = (event) => {
     if (!legendRef.value) return;
@@ -1741,6 +2063,7 @@ const highlightPointsByConstraint = async (highlightingData) => {
     await nextTick();                      // ← Wait for DOM to process the clear
 
     highlightedPoints.value = [...highlightedIndices];   // ← Then set new values
+    emit('highlights-changed', [...highlightedIndices]);
 
     console.log('Plot: Setting highlighted points to:', highlightedIndices);
 
@@ -1829,7 +2152,21 @@ defineExpose({
     set allPoints(value) { allPoints.value = value; },
     // Expose hasSetInitialRestartPoints for direct access
     get hasSetInitialRestartPoints() { return hasSetInitialRestartPoints.value; },
-    set hasSetInitialRestartPoints(value) { hasSetInitialRestartPoints.value = value; }
+    set hasSetInitialRestartPoints(value) { hasSetInitialRestartPoints.value = value; },
+    getHighlightedIndices: () => [...highlightedPoints.value],
+    getHighlightedPoints: () => highlightedPoints.value
+      .map(i => allPoints.value[i])
+      .filter(p => p != null),
+    clearHighlighting: () => {
+      highlightedPoints.value = [];
+      if (chartInstance) {
+        chartInstance.data.datasets = buildChartData();
+        chartInstance.update();
+      }
+      emit('highlights-changed', []);
+    },
+    setSelectionMode,
+    getSelectionMode: () => selectionMode.value,
 });
 
 let refreshInterval = null;
@@ -1890,11 +2227,11 @@ watch([selectedXAxis, selectedYAxis], () => {
 
 onMounted(() => {
   createChart();
-  // Clear any existing data on mount to ensure clean start
+  nextTick(() => syncOverlaySize());
+  window.addEventListener('resize', syncOverlaySize);
   allPoints.value = [];
   updateChart();
-  // Don't start polling automatically - wait for model selection
-  // Polling will start when model prop is set (via watcher)
+  window.addEventListener('keydown', onKeyDown);
   console.log('[Plot] Component mounted. Waiting for model selection before starting polling.');
 });
 
@@ -1903,6 +2240,8 @@ onUnmounted(() => {
     clearInterval(refreshInterval);
     refreshInterval = null;
   }
+  window.removeEventListener('resize', syncOverlaySize);
+  window.removeEventListener('keydown', onKeyDown);
 });
 
 watch(() => props.isComparative, () => {
@@ -2055,17 +2394,63 @@ const handlePointAction = () => {
 <template>
     <div class="chart-container" style="position: relative;">
         <div class="plot-scroll-container">
-            <div class="plot-canvas-wrapper">
-                <canvas ref="chartRef"></canvas>
-                <div v-if="isEvaluatingDesign" class="plot-loading-overlay">
-                    <div class="plot-loading-spinner"></div>
-                    <div class="plot-loading-text">Evaluating design...</div>
-                </div>
-                <div v-if="isComparativeLoading" class="plot-loading-overlay">
-                    <div class="plot-loading-spinner"></div>
-                    <div class="plot-loading-text">{{ comparativeLoadingMessage }}</div>
-                </div>
+          <div class="plot-canvas-wrapper">
+            <canvas ref="chartRef"></canvas>
+
+            <!-- NEW: overlay canvas for box/lasso drawing -->
+            <canvas
+              ref="overlayRef"
+              class="selection-overlay"
+              :class="{ active: selectionMode !== 'off' }"
+              @mousedown="onOverlayMouseDown"
+              @mousemove="onOverlayMouseMove"
+              @mouseup="onOverlayMouseUp"
+              @mouseleave="onOverlayMouseUp"
+            ></canvas>
+
+            <!-- NEW: selection mode toolbar -->
+            <div class="selection-toolbar" v-if="!isComparativeLoading && !isEvaluatingDesign">
+              <!-- <button
+                class="sel-btn"
+                :class="{ active: selectionMode === 'click' }"
+                @click="setSelectionMode('click')"
+                title="Click individual points to toggle highlight"
+              >Click</button> -->
+              <button
+                class="sel-btn"
+                :class="{ active: selectionMode === 'box' }"
+                @click="setSelectionMode('box')"
+                title="Drag a rectangle to select points"
+              >Box</button>
+              <button
+                class="sel-btn"
+                :class="{ active: selectionMode === 'lasso' }"
+                @click="setSelectionMode('lasso')"
+                title="Draw a freehand region to select points"
+              >Lasso</button>
+              <button
+                class="sel-btn off"
+                :class="{ active: selectionMode === 'off' }"
+                @click="setSelectionMode('off')"
+                title="Disable selection"
+              >Off</button>
+              <span class="sel-hint" v-if="selectionMode === 'box'">
+                Shift-drag to add to selection
+              </span>
+              <span class="sel-hint" v-if="selectionMode === 'lasso'">
+                Shift-draw to add to selection
+              </span>
             </div>
+
+            <div v-if="isEvaluatingDesign" class="plot-loading-overlay">
+              <div class="plot-loading-spinner"></div>
+              <div class="plot-loading-text">Evaluating design...</div>
+            </div>
+            <div v-if="isComparativeLoading" class="plot-loading-overlay">
+              <div class="plot-loading-spinner"></div>
+              <div class="plot-loading-text">{{ comparativeLoadingMessage }}</div>
+            </div>
+          </div>
         </div>
         <div class="axis_select">
             <label>Y Axis:
@@ -2226,5 +2611,73 @@ const handlePointAction = () => {
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+.selection-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  pointer-events: none;       /* default: chart receives events */
+  z-index: 5;
+}
+
+.selection-overlay.active {
+  pointer-events: auto;       /* takes over the cursor in box/lasso modes */
+  cursor: crosshair;
+}
+
+.selection-toolbar {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  z-index: 11;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid #e0e6ed;
+  border-radius: 8px;
+  padding: 6px 8px;
+  box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+  font-size: 0.85rem;
+  user-select: none;
+}
+
+.sel-btn {
+  background: #f7fafc;
+  border: 1px solid #e0e6ed;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #4a5568;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: auto;
+  margin: 0;
+  height: auto;
+}
+
+.sel-btn:hover {
+  background: #edf2f7;
+  border-color: #cbd5e0;
+}
+
+.sel-btn.active {
+  background: #337aff;
+  color: #fff;
+  border-color: #337aff;
+}
+
+.sel-btn.off.active {
+  background: #6b7280;
+  border-color: #6b7280;
+}
+
+.sel-hint {
+  color: #6b7280;
+  font-size: 0.75rem;
+  margin-left: 4px;
+  font-style: italic;
 }
 </style>

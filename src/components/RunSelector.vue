@@ -108,7 +108,7 @@
         <label>Model:</label>
         <select v-model="newRunConfig.model" class="form-select">
           <option value="CASCADE">CASCADE</option>
-          <option value="HISIM">HISIM</option>
+          <option value="PISTIL">PISTIL</option>
         </select>
       </div>
 
@@ -162,80 +162,68 @@
 
       <!-- Objectives -->
       <div class="form-group">
-        <label>Objectives:</label>
+        <label>Objectives ({{ newRunConfig.model }}):</label>
+        <small class="form-help">Select 1–3 objectives</small>
         <div class="checkbox-group">
-          <label class="checkbox-option">
-            <input 
-              type="checkbox" 
-              v-model="newRunConfig.objectives" 
-              value="Energy"
+          <label
+            v-for="obj in availableObjectives"
+            :key="obj"
+            class="checkbox-option"
+          >
+            <input
+              type="checkbox"
+              :value="obj"
+              v-model="newRunConfig.objectives"
+              :disabled="!newRunConfig.objectives.includes(obj) && newRunConfig.objectives.length >= 3"
             />
-            <span>Energy</span>
-          </label>
-          <label class="checkbox-option">
-            <input 
-              type="checkbox" 
-              v-model="newRunConfig.objectives" 
-              value="Runtime"
-            />
-            <span>Runtime</span>
-          </label>
-          <label class="checkbox-option">
-            <input 
-              type="checkbox" 
-              v-model="newRunConfig.objectives" 
-              value="Temperature"
-            />
-            <span>Temperature</span>
-          </label>
-          <label class="checkbox-option">
-            <input 
-              type="checkbox" 
-              v-model="newRunConfig.objectives" 
-              value="Area"
-            />
-            <span>Area</span>
+            <span>{{ obj }}</span>
           </label>
         </div>
       </div>
 
-      <!-- Traces -->
-      <div class="form-group">
+      <!-- CASCADE: Traces + Weights -->
+      <div v-if="newRunConfig.model === 'CASCADE'" class="form-group">
         <label>Traces & Weights:</label>
         <div class="trace-list">
-          <div 
-            v-for="trace in availableTraces" 
-            :key="trace.name"
-            class="trace-item"
-          >
-            <label class="checkbox-option">
-              <input 
-                type="checkbox" 
-                v-model="newRunConfig.traces" 
-                :value="trace"
-              />
-              <span>{{ trace.name }}</span>
-            </label>
-            <input 
-              v-if="newRunConfig.traces.includes(trace)"
-              type="number" 
-              v-model.number="trace.weight" 
-              min="0" 
-              max="1" 
-              step="0.1"
+          <div v-for="(t, idx) in newRunConfig.traces" :key="idx" class="trace-item">
+            <select v-model="t.name" class="form-select">
+              <option v-for="name in availableTraceNames" :key="name" :value="name">
+                {{ name }}
+              </option>
+            </select>
+            <input
+              type="number"
+              v-model.number="t.weight"
+              min="0"
+              max="1"
+              step="0.05"
               class="weight-input"
               placeholder="Weight"
             />
+            <button type="button" class="remove-trace-btn" @click="removeTrace(idx)">✕</button>
           </div>
+          <button type="button" class="add-trace-btn" @click="addTrace">+ Add Trace</button>
         </div>
-        
-        <!-- Weight Sum Validation -->
         <div v-if="newRunConfig.traces.length > 0" class="weight-validation">
-          <small :class="['weight-sum', { 'valid': isWeightSumValid, 'invalid': !isWeightSumValid }]">
+          <small :class="['weight-sum', { valid: isWeightSumValid, invalid: !isWeightSumValid }]">
             Weight sum: {{ traceWeightsSum.toFixed(2) }} / 1.00
-            <span v-if="!isWeightSumValid" class="weight-error">(Must equal 1.00)</span>
+            <span v-if="!isWeightSumValid" class="weight-error">(must equal 1.00)</span>
           </small>
         </div>
+      </div>
+
+      <!-- PISTIL: Model selection -->
+      <div v-if="newRunConfig.model === 'PISTIL'" class="form-group">
+        <label>PISTIL Model:</label>
+        <select v-model="newRunConfig.pistil_model" class="form-select">
+          <option v-for="m in availablePistilModels" :key="m" :value="m">{{ m }}</option>
+        </select>
+      </div>
+
+      <!-- Full-Factorial (CASCADE only) -->
+      <div v-if="newRunConfig.algorithm === 'Full-Factorial' && newRunConfig.model === 'CASCADE'" class="form-group">
+        <label>Total chiplet slots:</label>
+        <input type="number" v-model.number="newRunConfig.num_slots" min="1" max="20" class="form-input" />
       </div>
 
       <!-- Configuration Summary -->
@@ -275,13 +263,23 @@
 <script>
 import axios from 'axios';
 
+const CASCADE_OBJECTIVES = ['Energy', 'Runtime', 'DRAM', 'Memory', 'FLOPS'];
+const PISTIL_OBJECTIVES = [
+  'Latency per Token', 'Energy per Inference', 'Energy per Token',
+  'Average Power', 'System Power', 'System Cost',
+  'Avg Compute Util', 'Avg Memory Util', 'Prefill Tokens/sec',
+  'System Compute', 'System Bandwidth', 'System Capacity',
+];
+const CASCADE_TRACES = [
+  'gpt-j-65536-weighted', 'gpt-j-1024-weighted',
+  'sd-test', 'ogbn-products-test', 'resnet50-test',
+];
+const PISTIL_MODELS = ['llama3-8b'];
+
 export default {
   name: 'RunSelector',
   props: {
-    runLabel: {
-      type: String,
-      required: true
-    }
+    runLabel: { type: String, required: true },
   },
   data() {
     return {
@@ -294,44 +292,52 @@ export default {
         algorithm: 'Genetic Algorithm',
         population_size: 50,
         generations: 100,
-        grid_size: 10,
-        objectives: ['Energy', 'Runtime'],
-        traces: []
+        num_slots: 12,               // CASCADE full-factorial
+        selected_chiplet_types: ['GPU', 'Attention', 'Sparse', 'Convolution'],
+        objectives: [],
+        traces: [{ name: 'gpt-j-65536-weighted', weight: 1.0 }],
+        pistil_model: 'llama3-8b',
       },
-      availableTraces: [
-        { name: 'gpt-j-65536-weighted', weight: 1.0 },
-        { name: 'gpt-j-65536-unweighted', weight: 0.0 },
-        { name: 'gpt-j-65536-mixed', weight: 0.0 },
-        { name: 'gpt-j-1024-weighted', weight: 0.0 },
-        { name: 'sd-test', weight: 0.0 },
-        { name: 'ogbn-products-test', weight: 0.0 },
-        { name: 'resnet50-test', weight: 0.0 }
-      ],
       runStatus: null,
       validationErrors: [],
-      selectedRunMetadata: null // New property to hold metadata for selected previous run
+      selectedRunMetadata: null,
     };
   },
   computed: {
+    availableObjectives() {
+      return this.newRunConfig.model === 'PISTIL' ? PISTIL_OBJECTIVES : CASCADE_OBJECTIVES;
+    },
+    availableTraceNames() {
+      return CASCADE_TRACES;
+    },
+    availablePistilModels() {
+      return PISTIL_MODELS;
+    },
     selectedRunInfo() {
       if (!this.selectedPreviousRun) return null;
-      return this.previousRuns.find(run => run.filename === this.selectedPreviousRun);
+      return this.previousRuns.find(r => r.filename === this.selectedPreviousRun);
     },
     traceWeightsSum() {
-      return this.newRunConfig.traces.reduce((sum, trace) => sum + (trace.weight || 0), 0);
+      return this.newRunConfig.traces.reduce((s, t) => s + (Number(t.weight) || 0), 0);
     },
     isWeightSumValid() {
       return Math.abs(this.traceWeightsSum - 1.0) < 0.01;
-    }
+    },
   },
   watch: {
     newRunConfig: {
-      handler(newConfig) {
+      handler() {
         this.validateNewRunConfig();
         this.emitConfigUpdate();
       },
-      deep: true
-    }
+      deep: true,
+    },
+    'newRunConfig.model'(newModel, oldModel) {
+      if (newModel !== oldModel) {
+        // Reset objectives since they differ per model
+        this.newRunConfig.objectives = [];
+      }
+    },
   },
   mounted() {
     this.fetchBackupFiles();
@@ -340,22 +346,18 @@ export default {
     async fetchBackupFiles() {
       this.loadingBackupFiles = true;
       try {
-        const response = await axios.get('/api/list-backup-files/');
-        if (response.data.status === 'success') {
-          this.previousRuns = response.data.backup_files.map(backup => ({
-            id: backup.filename,
-            name: backup.display_name,
-            date: backup.timestamp,
-            filename: backup.filename
+        const resp = await axios.get('/api/list-backup-files/');
+        if (resp.data.status === 'success') {
+          this.previousRuns = resp.data.backup_files.map(b => ({
+            id: b.filename,
+            name: b.display_name,
+            date: b.timestamp,
+            filename: b.filename,
+            evaluator: b.evaluator,          // 'CASCADE' or 'PISTIL'
           }));
-        } else {
-          console.warn('Backup files API returned non-success status:', response.data);
-          // Don't show error to user unless they actually try to use previous runs
         }
-      } catch (error) {
-        console.error('Error fetching backup files:', error);
-        // Only show error if user tries to select previous run and there are no runs available
-        // Don't add to validationErrors immediately
+      } catch (e) {
+        console.error('Error fetching backup files:', e);
       } finally {
         this.loadingBackupFiles = false;
       }
@@ -363,188 +365,140 @@ export default {
 
     handleTypeChange() {
       this.selectedPreviousRun = '';
-      this.newRunConfig = {
-        model: 'CASCADE',
-        algorithm: 'Genetic Algorithm',
-        population_size: 50,
-        generations: 100,
-        grid_size: 10,
-        objectives: ['Energy', 'Runtime'],
-        traces: []
-      };
+      this.selectedRunMetadata = null;
       this.validationErrors = [];
-      this.selectedRunMetadata = null; // Clear metadata when changing type
-      
-      // Check if previous runs are available when user selects "Previous Run"
-      if (this.selectedType === 'previous') {
-        this.checkPreviousRunsAvailability();
-      }
-      
-      this.emitRunSelected(null); // Clear selection when changing type
+      this.emitRunSelected(null);
     },
 
-    handlePreviousRunSelected() {
-      if (this.selectedPreviousRun) {
-        try {
-          const selectedRun = this.previousRuns.find(run => run.filename === this.selectedPreviousRun);
-          if (selectedRun) {
-            this.loadRunMetadata(selectedRun.filename);
-            this.emitRunSelected({
-              type: 'previous',
-              config: {
-                backup_filename: this.selectedPreviousRun,
-                display_name: selectedRun.name,
-                timestamp: selectedRun.date
-              }
-            });
-          } else {
-            console.error('Selected run not found in previousRuns array');
-            this.validationErrors.push('Selected run not found. Please try again.');
-          }
-        } catch (error) {
-          console.error('Error handling previous run selection:', error);
-          this.validationErrors.push('Error selecting previous run. Please try again.');
-        }
-      } else {
+    async handlePreviousRunSelected() {
+      if (!this.selectedPreviousRun) {
         this.emitRunSelected(null);
+        return;
       }
-    },
+      const run = this.previousRuns.find(r => r.filename === this.selectedPreviousRun);
+      if (!run) return;
 
-    checkPreviousRunsAvailability() {
-      if (this.selectedType === 'previous' && this.previousRuns.length === 0 && !this.loadingBackupFiles) {
-        // Don't add this as a validation error, just show a helpful message
-        console.log('No previous runs available for selection');
-        // You could add a non-error message here if needed
-      }
-    },
-
-    async loadRunMetadata(filename) {
       try {
-        const response = await axios.post('/api/load-previous-run/', {
-          backup_filename: filename
+        const resp = await axios.post('/api/load-previous-run/', {
+          backup_filename: this.selectedPreviousRun,
         });
-        if (response.data.status === 'success') {
-          this.selectedRunMetadata = response.data.metadata;
-        } else {
-          console.warn('Failed to load run metadata:', response.data);
-          this.selectedRunMetadata = null;
+        if (resp.data.status === 'success') {
+          this.selectedRunMetadata = resp.data.metadata || {};
+          // Infer evaluator from metadata OR filename
+          const evaluator =
+            this.selectedRunMetadata.model ||
+            resp.data.evaluator ||
+            (this.selectedPreviousRun.startsWith('pistil_run_') ? 'PISTIL' : 'CASCADE');
+
+          this.emitRunSelected({
+            type: 'previous',
+            config: {
+              backup_filename: this.selectedPreviousRun,
+              display_name: run.name,
+              timestamp: run.date,
+              model: evaluator,
+              objectives: this.selectedRunMetadata.objectives || [],
+            },
+          });
         }
-      } catch (error) {
-        console.error('Error loading run metadata:', error);
+      } catch (e) {
+        console.error('Error loading previous run metadata:', e);
         this.selectedRunMetadata = null;
       }
     },
 
-    formatObjectives(objectives) {
-      if (!objectives || objectives.length === 0) return 'N/A';
-      return objectives.join(', ');
-    },
-
-    formatTraces(traces) {
-      if (!traces || traces.length === 0) return 'N/A';
-      return traces.map(trace => trace.name).join(', ');
-    },
-
-    formatTimestamp(timestamp) {
-      if (!timestamp) return 'N/A';
-      const date = new Date(timestamp);
-      return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-    },
-
     validateNewRunConfig() {
       this.validationErrors = [];
-      
-      if (!this.newRunConfig.model) {
-        this.validationErrors.push('Model selection is required.');
+      const c = this.newRunConfig;
+
+      if (!c.model) this.validationErrors.push('Model is required.');
+      if (!c.algorithm) this.validationErrors.push('Algorithm is required.');
+      if (!c.objectives || c.objectives.length === 0) {
+        this.validationErrors.push('At least one objective is required.');
+      } else if (c.objectives.length > 3) {
+        this.validationErrors.push('At most 3 objectives are supported.');
       }
-      
-      if (!this.newRunConfig.algorithm) {
-        this.validationErrors.push('Algorithm selection is required.');
+
+      if (c.algorithm === 'Genetic Algorithm') {
+        if (!c.population_size || c.population_size < 10)
+          this.validationErrors.push('Population size must be ≥ 10.');
+        if (!c.generations || c.generations < 10)
+          this.validationErrors.push('Generations must be ≥ 10.');
       }
-      
-      if (this.newRunConfig.algorithm === 'Genetic Algorithm') {
-        if (!this.newRunConfig.population_size || this.newRunConfig.population_size < 10) {
-          this.validationErrors.push('Population size must be at least 10.');
-        }
-        if (!this.newRunConfig.generations || this.newRunConfig.generations < 10) {
-          this.validationErrors.push('Number of generations must be at least 10.');
-        }
+      if (c.algorithm === 'Full-Factorial' && c.model === 'CASCADE') {
+        if (!c.num_slots || c.num_slots < 1)
+          this.validationErrors.push('Number of chiplet slots must be ≥ 1.');
+        if (!c.selected_chiplet_types || c.selected_chiplet_types.length === 0)
+          this.validationErrors.push('Select at least one chiplet type.');
       }
-      
-      if (this.newRunConfig.algorithm === 'Full-Factorial') {
-        if (!this.newRunConfig.grid_size || this.newRunConfig.grid_size < 5) {
-          this.validationErrors.push('Grid size must be at least 5.');
-        }
-      }
-      
-      if (!this.newRunConfig.objectives || this.newRunConfig.objectives.length === 0) {
-        this.validationErrors.push('At least one objective must be selected.');
-      }
-      
-      // Only validate traces for new runs, not previous runs
-      if (this.selectedType === 'new') {
-        if (!this.newRunConfig.traces || this.newRunConfig.traces.length === 0) {
-          this.validationErrors.push('At least one trace must be selected.');
+
+      // Traces only apply to CASCADE
+      if (c.model === 'CASCADE') {
+        if (!c.traces || c.traces.length === 0) {
+          this.validationErrors.push('At least one trace is required.');
         } else if (!this.isWeightSumValid) {
-          this.validationErrors.push('Sum of trace weights must equal 1.00.');
+          this.validationErrors.push(
+            `Trace weights must sum to 1.00 (currently ${this.traceWeightsSum.toFixed(2)}).`
+          );
         }
       }
+    },
+
+    isValidNewRunConfig() {
+      if (this.selectedType === 'previous') return !!this.selectedPreviousRun;
+      return this.validationErrors.length === 0
+        && this.newRunConfig.objectives.length > 0
+        && this.newRunConfig.model
+        && this.newRunConfig.algorithm;
     },
 
     emitConfigUpdate() {
       if (this.selectedType === 'new' && this.isValidNewRunConfig()) {
         this.emitRunSelected({
           type: 'new',
-          config: { ...this.newRunConfig }
+          config: JSON.parse(JSON.stringify(this.newRunConfig)),
         });
       } else if (this.selectedType === 'previous' && this.selectedPreviousRun) {
-        // For previous runs, emit the selected run data
-        this.handlePreviousRunSelected();
+        // Already emitted in handlePreviousRunSelected
       } else {
-        // Clear the selection if validation fails
         this.emitRunSelected(null);
       }
     },
 
-    emitRunSelected(runData = null) {
-      if (runData) {
-        this.$emit('run-selected', runData);
-      } else {
-        this.$emit('run-selected', null);
-      }
+    emitRunSelected(runData) {
+      this.$emit('run-selected', runData);
     },
 
-    isValidNewRunConfig() {
-      // For previous runs, only check if a run is selected
-      if (this.selectedType === 'previous') {
-        return this.selectedPreviousRun !== '';
-      }
-      
-      // For new runs, check all validation criteria
-      return (
-        this.newRunConfig.model &&
-        this.newRunConfig.algorithm &&
-        this.newRunConfig.objectives.length > 0 &&
-        this.newRunConfig.traces.length > 0 &&
-        this.isWeightSumValid &&
-        this.validationErrors.length === 0
-      );
+    addTrace() {
+      this.newRunConfig.traces.push({ name: CASCADE_TRACES[0], weight: 0.0 });
+    },
+    removeTrace(idx) {
+      this.newRunConfig.traces.splice(idx, 1);
+    },
+
+    formatObjectives(objs) {
+      return (objs && objs.length) ? objs.join(', ') : 'N/A';
+    },
+
+    formatTraces(traces) {
+      if (!traces || traces.length === 0) return 'N/A';
+      return traces.map(t => (typeof t === 'string' ? t : t.name)).join(', ');
+    },
+
+    formatTimestamp(ts) {
+      if (!ts) return 'N/A';
+      const d = new Date(ts);
+      return d.toLocaleDateString() + ' ' + d.toLocaleTimeString();
     },
 
     getStatusText(status) {
-      const statusTexts = {
-        'idle': 'Ready',
-        'running': 'Running...',
-        'completed': 'Completed',
-        'failed': 'Failed'
-      };
-      return statusTexts[status] || status;
+      return { idle: 'Ready', running: 'Running...', completed: 'Completed', failed: 'Failed' }[status] || status;
     },
 
     setRunStatus(status) {
       this.runStatus = status;
-    }
-  }
+    },
+  },
 };
 </script>
 

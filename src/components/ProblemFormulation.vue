@@ -503,7 +503,16 @@ export default {
     RunForm,
     ComparativeStudy
   },
-  emits: ['optimization-success', 'data-mining-complete', 'report-generated', 'run-id-updated', 'view-changed', 'model-selected', 'objectives-changed'],
+  emits: [
+    'optimization-success',
+    'data-mining-complete',
+    'report-generated',
+    'run-id-updated',
+    'view-changed',
+    'model-selected',
+    'objectives-changed',
+    'trace-or-model-selected',
+  ],
   data() {
     return {
       currentView: 'welcome', // 'welcome', 'new-optimization', 'load-previous', 'comparative'
@@ -668,6 +677,13 @@ export default {
         this.loadedRunSelectedObjectives.length >= 1 &&
         this.loadedRunSelectedObjectives.length <= 3
       );
+    },
+    currentTraceOrModel() {
+      if (this.selectedModel === 'PISTIL') {
+        return this.pistilModel || 'llama3-8b';
+      }
+      // CASCADE: send the first trace name (or join, if backend supports lists)
+      return this.traceWeights?.[0]?.name || 'gpt-j-65536-weighted';
     },
     
   },
@@ -1099,6 +1115,14 @@ export default {
         // 1. Set model with watcher-suppression
         this._suppressObjectiveClear = true;
         this.selectedModel = evaluator;
+        if (evaluator === 'CASCADE' && Array.isArray(this.loadedRunMetadata.traces) && this.loadedRunMetadata.traces.length) {
+          this.traceWeights = this.loadedRunMetadata.traces.map(t => ({
+            name: t.name || t,
+            weight: t.weight ?? 1.0,
+          }));
+        } else if (evaluator === 'PISTIL' && this.loadedRunMetadata.pistil_model) {
+          this.pistilModel = this.loadedRunMetadata.pistil_model;
+        }
         this.$nextTick(() => { this._suppressObjectiveClear = false; });
 
         // 2. Sync state
@@ -1311,7 +1335,8 @@ export default {
           }
         } else {
           // For current runs, generate a new report
-          reportResponse = await generateOptimizationReport(this.currentRunId);
+          // Include selected objectives in the report generation call
+          reportResponse = await generateOptimizationReport(this.currentRunId, this.selectedObjectives);
         }
         
         console.log('Report Generated:', reportResponse);
@@ -1578,6 +1603,13 @@ export default {
       if (newFile !== oldFile) {
         this._loadedRunCache = null;        // clear cached payload
         this.fetchRunMetadata(newFile);     // fetch metadata immediately
+      }
+    },
+    currentTraceOrModel: {
+      immediate: true,
+      handler(newVal) {
+        console.log('[ProblemFormulation] trace_or_model changed:', newVal);
+        this.$emit('trace-or-model-selected', newVal);
       }
     },
   }

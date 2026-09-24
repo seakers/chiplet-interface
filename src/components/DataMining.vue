@@ -57,13 +57,15 @@
           <h3>Rule Mining</h3>
           <button @click="showRuleMining = false" class="close-btn" aria-label="Close">&times;</button>
         </div>
-        <RuleMining 
-          :filePath="filePath" 
+        <RuleMining
+          :filePath="filePath"
           :selectedModel="selectedModel"
           :currentRunId="currentRunId"
           :agentResults='ruleMiningData'
           :selectedObjectives='selectedObjectives'
-          @send-insights-to-chat="$emit('send-insights-to-chat', $event)" 
+          :highlightedIndices="highlightedIndices"
+          @send-insights-to-chat="$emit('send-insights-to-chat', $event)"
+          @highlight-from-rulemining="$emit('highlight-from-rulemining', $event)"
         />
       </div>
       
@@ -72,13 +74,14 @@
           <h3>Distance Correlation Study</h3>
           <button @click="showDistanceCorrelation = false" class="close-btn" aria-label="Close">&times;</button>
         </div>
-        <DistanceCorrelation
-          :filePath="filePath"
-          :selectedModel="selectedModel"
-          :currentRunId="currentRunId"
-          :selectedObjectives="selectedObjectives"
-          @send-insights-to-chat="$emit('send-insights-to-chat', $event)"
-        />
+          <DistanceCorrelation
+            :filePath="filePath"
+            :selectedModel="selectedModel"
+            :currentRunId="currentRunId"
+            :selectedObjectives="selectedObjectives"
+            :highlightedIndices="highlightedIndices"
+            @send-insights-to-chat="$emit('send-insights-to-chat', $event)"
+          />
       </div>
     </div>
   </div>
@@ -122,7 +125,11 @@ export default {
     selectedObjectives: {
       type: Array,
       default: () => []
-    }
+    },
+    highlightedIndices: {
+      type: Array,
+      default: () => []
+    },
   },
   data() {
     return {

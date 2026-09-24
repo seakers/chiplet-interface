@@ -16,6 +16,7 @@
               @view-changed="handleViewChanged"
               @model-selected="handleModelSelected"
               @objectives-changed="handleObjectivesChanged"
+              @trace-or-model-selected="handleTraceOrModelSelected"
             />
           </div>
           
@@ -24,14 +25,17 @@
               <h2 class="explorer-title">Design Space Explorer</h2>
               <!-- Zoom Controls -->
               <div class="zoom-controls">
-                <button @click="zoomIn" class="zoom-btn" title="Zoom In">
-                  Zoom In
-                </button>
-                <button @click="zoomOut" class="zoom-btn" title="Zoom Out">
-                  Zoom Out
-                </button>
-                <button @click="resetZoom" class="zoom-btn reset" title="Reset Zoom">
-                  Reset
+                <button @click="zoomIn" class="zoom-btn" title="Zoom In">Zoom In</button>
+                <button @click="zoomOut" class="zoom-btn" title="Zoom Out">Zoom Out</button>
+                <button @click="resetZoom" class="zoom-btn reset" title="Reset Zoom">Reset</button>
+                <!-- NEW -->
+                <button
+                  @click="clearAllHighlights"
+                  class="zoom-btn"
+                  :disabled="highlightedIndices.length === 0"
+                  :title="highlightedIndices.length === 0 ? 'No highlights to clear' : `Clear ${highlightedIndices.length} highlighted points`"
+                >
+                  Clear Highlights{{ highlightedIndices.length > 0 ? ` (${highlightedIndices.length})` : '' }}
                 </button>
               </div>
             </div>
@@ -44,13 +48,17 @@
               :selectedObjectives="selectedObjectives"
               @point-selected="handlePointSelected" 
               @point-hovered="handlePointHovered" 
+              @highlights-changed="handleHighlightsChanged"
             />
           </div>
           
           <!-- Region Selection Section -->
           <div class="region-selection-section" v-if="!isComparativeAnalysisActive && showRegionSection">
             <div class="region-selection-header">
-              <h2 class="region-selection-title">Region Selection</h2>
+              <h2 class="region-selection-title">Highlight Selection</h2>
+              <p class="region-selection-subtitle">
+                Select points by region; selections become highlights used by rule mining and distance correlation.
+              </p>
             </div>
             <div class="region-selection-content">
               <div class="region-section">
@@ -126,17 +134,28 @@
           
           <!-- Data Mining Section -->
           <div class="data-mining-section" v-if="!isComparativeAnalysisActive && openWindows.DataMining">
-          <DataMining 
-            :filePath="currentFilePath"
-            :selectedModel="selectedModel"
-            :currentRunId="currentRunId"
-            :agentDcorrData="agentDcorrData"
-            :agentRuleMiningData="agentRuleMiningData"
-            :selectedObjectives="selectedObjectives"
-            @close="closeWindow('DataMining')"
-            @send-insights-to-chat="handleSendInsightsToChat"
-            @agent-data-consumed="agentDcorrData = null; agentRuleMiningData = null"
-          />
+            <DataMining
+              :filePath="currentFilePath"
+              :selectedModel="selectedModel"
+              :currentRunId="currentRunId"
+              :agentDcorrData="agentDcorrData"
+              :agentRuleMiningData="agentRuleMiningData"
+              :selectedObjectives="selectedObjectives"
+              :highlightedIndices="highlightedIndices"
+              @close="closeWindow('DataMining')"
+              @send-insights-to-chat="handleSendInsightsToChat"
+              @agent-data-consumed="agentDcorrData = null; agentRuleMiningData = null"
+              @highlight-from-rulemining="handleHighlightFromRuleMining"
+            />
+          </div>
+
+          <!-- Dynamic Plot Section (sibling to Data Mining) -->
+          <div class="dynamic-plot-section" v-if="!isComparativeAnalysisActive && agentPlotData">
+            <div class="dynamic-plot-header">
+              <h2 class="dynamic-plot-title">{{ agentPlotData?.title || 'Generated Plot' }}</h2>
+              <button @click="agentPlotData = null" class="close-btn" aria-label="Close">&times;</button>
+            </div>
+            <DynamicPlot :plotData="agentPlotData" />
           </div>
           
           <!-- Docked windows area: always rendered -->
@@ -165,15 +184,20 @@
         <!-- RIGHT COLUMN (Chat) -->
         <div class="right-col">
           <div class="chat-scroll-wrap">
-          <Chat ref="Chat" 
-              :chatOpen="true" 
-              :selectedModel="selectedModel"
-              :run_id="currentRunId"
-              :selectedObjectives='selectedObjectives'
-              @highlighting-response="handleHighlightingResponse" 
-              @run-id-updated="handleRunIdUpdated"
-              @agent-dcorr-update="handleAgentDcorrUpdate"
-              @agent-rule-mining-update="handleAgentRuleMiningUpdate"
+          <Chat ref="Chat"
+            :chatOpen="true"
+            :selectedModel="selectedModel"
+            :run_id="currentRunId"
+            :selectedObjectives='selectedObjectives'
+            :highlightedIndices="highlightedIndices"
+            :traceOrModel="traceOrModel"
+            @highlighting-response="handleHighlightingResponse"
+            @run-id-updated="handleRunIdUpdated"
+            @report-generated="handleReportGenerated"
+            @comparative-analysis-result="handleAgentComparativeResult"
+            @agent-dcorr-update="handleAgentDcorrUpdate"
+            @agent-rule-mining-update="handleAgentRuleMiningUpdate"
+            @agent-plot-create="handleAgentPlotCreate"
           />
           </div>
         </div>
@@ -205,6 +229,7 @@ import { evaluatePointInputs, integrateCustomPointToGA, saveCustomPointToDataset
 import { addInsightsContext, addInfo, addEnhancedInsightsContext } from './services/chat.js';
 import { generateOptimizationReport } from './services/analytics.js';
 import DesignVisualizer from './components/DesignVisualizer.vue';
+import DynamicPlot from './components/DynamicPlot.vue';
 
 export default {
   components: {
@@ -217,6 +242,7 @@ export default {
     CustomDesignModal,
     draggable,
     DesignVisualizer,
+    DynamicPlot,
   },
   data() {
     return {
@@ -241,9 +267,12 @@ export default {
       },
       paretoRanks: [1],
       selectedModel: null,  // Track selected model - starts as null until user selects
+      traceOrModel: null,
       selectedObjectives: [],
       agentDcorrData: null,
       agentRuleMiningData: null,
+      agentPlotData: null,
+      highlightedIndices: [],
     };
   },
   watch: {
@@ -715,6 +744,10 @@ export default {
       this.selectedModel = model;
       console.log(`[App.vue] Updated selectedModel to ${model}. Plot will start polling.`);
     },
+    handleTraceOrModelSelected(value) {
+      console.log(`[App.vue] trace_or_model updated: ${value}`);
+      this.traceOrModel = value;
+    },
     handleAgentDcorrUpdate(dcorrData) {
       console.log('App.vue: Agent triggered distance correlation update:', dcorrData);
       this.agentDcorrData = null;
@@ -735,6 +768,34 @@ export default {
       
       // Store data for DataMining to pick up
       // this.agentDcorrData = dcorrData;
+    },
+    handleAgentPlotCreate(plotData) {
+      console.log('App.vue: Agent triggered plot creation:', plotData);
+      // Reset then re-assign so the watcher/re-render fires even if the
+      // user requests a second plot with the same object shape.
+      this.agentPlotData = null;
+      this.$nextTick(() => {
+        this.agentPlotData = plotData;
+      });
+    },
+
+    handleAgentComparativeResult(data) {
+      console.log('App.vue: Agent comparative analysis result', data);
+      // Reuse the existing handleOptimizationSuccess path which already
+      // detects comparative results (it checks for run_a_points, run_b_points etc.) [2]
+      this.handleOptimizationSuccess({
+        status: 'success',
+        run_a_id: data.run_a_id,
+        run_b_id: data.run_b_id,
+        run_a_points: data.run_a_points,
+        run_b_points: data.run_b_points,
+        run_a_pareto: data.run_a_pareto,
+        run_b_pareto: data.run_b_pareto,
+        plot_data: { A: data.run_a_data, B: data.run_b_data },
+      });
+      // Switch to comparative view so ComparativeStudy / ComparativeResults render [10][1]
+      this.isComparativeAnalysisActive = true;
+      this.isComparative = true;
     },
 
     handleAgentRuleMiningUpdate(ruleMiningData) {
@@ -990,12 +1051,10 @@ export default {
     },
     clearAllRegions() {
       this.rectangularRegion = {
-        energyMin: null,
-        energyMax: null,
-        timeMin: null,
-        timeMax: null
+        obj0Min: null, obj0Max: null,
+        obj1Min: null, obj1Max: null,
       };
-      this.paretoRanks = [1];
+      this.paretoRanks = [];
       if (this.$refs.Plot && this.$refs.Plot.clearAllRegions) {
         this.$refs.Plot.clearAllRegions();
       }
@@ -1040,6 +1099,37 @@ export default {
       const f = fieldMap[objName];
       const v = f ? point[f] : undefined;
       return typeof v === 'number' ? v.toFixed(3) : (v ?? 'n/a');
+    },
+    handleHighlightsChanged(indices) {
+      // Single source of truth — sync App-level state with Plot's highlightedPoints.
+      this.highlightedIndices = Array.isArray(indices) ? [...indices] : [];
+      console.log('[App.vue] highlightedIndices updated:', this.highlightedIndices.length);
+    },
+
+    handleHighlightFromRuleMining(payload) {
+      if (!this.$refs.Plot) return;
+      if (payload.mode === 'pareto') {
+        this.$refs.Plot.applyParetoRegion(payload.ranks);
+      } else if (payload.mode === 'custom') {
+        // Map ranges to {obj0Min, obj0Max, obj1Min, obj1Max} expected by Plot
+        const r0 = payload.ranges[0] || {};
+        const r1 = payload.ranges[1] || {};
+        this.$refs.Plot.applyRectangularRegion({
+          obj0Min: r0.min === '' ? null : r0.min,
+          obj0Max: r0.max === '' ? null : r0.max,
+          obj1Min: r1.min === '' ? null : r1.min,
+          obj1Max: r1.max === '' ? null : r1.max,
+        });
+      } else if (payload.mode === 'clear') {
+        this.$refs.Plot.clearAllRegions();
+      }
+    },
+
+    clearAllHighlights() {
+      if (this.$refs.Plot && this.$refs.Plot.clearHighlighting) {
+        this.$refs.Plot.clearHighlighting();
+      }
+      this.highlightedIndices = [];
     },
   },
 };
@@ -1245,6 +1335,12 @@ export default {
   font-weight: 700;
   color: #2d3748;
   margin: 0 0 0.75rem 0;
+}
+
+.region-selection-subtitle {
+  font-size: 0.9rem;
+  color: #6b7280;
+  margin: 0.25rem 0 0 0;
 }
 
 .region-selection-content {
@@ -1822,6 +1918,32 @@ export default {
   .data-mining-section {
     margin: 0 12px 0.75rem 12px;
     padding: 1rem 0.75rem 1rem 0.75rem;
+  }
+
+  .dynamic-plot-section {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+    padding: 2rem 2.5rem 2.5rem 2.5rem;
+    margin-bottom: 2rem;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    margin-left: 32px;
+    margin-right: 32px;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  }
+  .dynamic-plot-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.2rem;
+  }
+  .dynamic-plot-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #2d3748;
+    margin: 0;
   }
   
   .create-design-btn-wrap {

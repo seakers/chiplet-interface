@@ -7,8 +7,25 @@
         description="A statistical method to detect both linear and nonlinear relationships between chiplet design features and outcomes (e.g., energy, runtime). It's useful when standard correlation misses complex dependencies. The dCor values range from 0 to 1, where 0 means no dependency and 1 means perfect dependency. Higher values indicate stronger influence on outcomes."
       />
     </h2>
+    <div class="highlight-toggle-row">
+      <label class="highlight-toggle" :class="{ disabled: !highlightedIndices.length }">
+        <input
+          type="checkbox"
+          v-model="useHighlightedOnly"
+          :disabled="!highlightedIndices.length"
+          @change="onHighlightToggleChange"
+        />
+        Use only highlighted points
+        <span class="highlight-count">
+          ({{ highlightedIndices.length }} selected)
+        </span>
+      </label>
+    </div>
     <div class="correlation-grid">
-      <div v-for="(plot, index) in plots" :key="index" class="plot-container">
+      <div class="plot-container" v-for="(plot, index) in plots" :key="index">
+        <div v-if="isFiltered" class="subset-badge">
+          Subset: {{ plotData ? plotData.length : 0 }} pts
+        </div>
         <h3 class="plot-title">{{ plot.title }}</h3>
         <div :id="'plot-' + index" class="plot"></div>
         <div v-if="getDistanceCorrelationValue(plot) !== null" class="correlation-value">
@@ -34,18 +51,23 @@ export default {
     HelpTooltip
   },
   props: {
-    filePath:  { type: String, default: null },
-    selectedModel:    { type: String, default: null },
-    currentRunId:     { type: String, default: null },
+    filePath:           { type: String, default: null },
+    selectedModel:      { type: String, default: null },
+    currentRunId:       { type: String, default: null },
     selectedObjectives: { type: Array, default: () => [] },
+    // NEW
+    highlightedIndices: { type: Array, default: () => [] },
   },
   data() {
     return {
-      plots: [],  // Start empty, will be populated dynamically
+      plots: [],
       plotData: null,
+      fullPlotData: null,
       distanceCorrelations: null,
-      variables: [],  // Store available variables
-      objectives: []  // Store available objectives
+      variables: [],
+      objectives: [],
+      // NEW: auto-enable when highlights exist, like RuleMining behavior
+      useHighlightedOnly: this.highlightedIndices && this.highlightedIndices.length > 0,
     };
   },
   methods: {
@@ -59,12 +81,35 @@ export default {
         if (this.filePath) {
           params.file_path = this.filePath;
         }
-        
+
         const response = await axios.get(url, { params });
-        this.plotData = response.data.data;
+        // Cache the full unfiltered dataset
+        this.fullPlotData = response.data.data;
+        // Apply subset filter (if active) before plotting
+        this.applyPlotDataFilter();
         this.createPlots();
       } catch (error) {
         console.error("Error fetching data:", error);
+      }
+    },
+
+    /**
+    * Build this.plotData from this.fullPlotData, optionally restricting
+    * to the highlighted indices when useHighlightedOnly is true.
+    */
+    applyPlotDataFilter() {
+      if (!this.fullPlotData) {
+        this.plotData = null;
+        return;
+      }
+      if (this.useHighlightedOnly && this.highlightedIndices.length > 0) {
+        const idxSet = new Set(this.highlightedIndices);
+        this.plotData = this.fullPlotData.filter((_, i) => idxSet.has(i));
+        console.log(
+          `[DistanceCorrelation] Scatter restricted to ${this.plotData.length} / ${this.fullPlotData.length} points`
+        );
+      } else {
+        this.plotData = this.fullPlotData;
       }
     },
 
@@ -225,31 +270,15 @@ export default {
       return shortNames[objectiveName] || objectiveName.split(' ').pop();
     },
 
-    async getInsights() {
-      try {
-        // Get optimization context from parent or props
-        const params = {
-          objective: this.$parent.currentObjective || 'both',
-          trace_name: this.$parent.currentTraceName || 'Unknown',
-          run_id: this.$parent.currentRunId || null
-        };
-        
-        const response = await getDistanceCorrelationInsights(params);
-        const insights = response.insights;
-        const structuredData = response.structured_data;
-        
-        // Store structured data for potential follow-up questions
-        this.$parent.lastDataMiningResults = {
-          type: 'distance_correlation',
-          structured_data: structuredData
-        };
-        
-        // Emit event to parent to send to chat
-        this.$emit('send-insights-to-chat', insights);
-      } catch (error) {
-        console.error("Error getting insights:", error);
-      }
+    onHighlightToggleChange() {
+      this.applyPlotDataFilter();
+      this.fetchDistanceCorrelation().then(() => {
+        // fetchDistanceCorrelation already calls fetchData() which calls createPlots(),
+        // but in case the backend call is in flight we ensure the scatter is refreshed:
+        if (this.fullPlotData) this.createPlots();
+      });
     },
+
     async fetchDistanceCorrelation() {
       try {
         const params = {
@@ -261,18 +290,48 @@ export default {
         }
         if (this.filePath) params.file_path = this.filePath;
 
+        // NEW: pass highlighted indices when toggle is on
+        if (this.useHighlightedOnly && this.highlightedIndices.length > 0) {
+          params.selected_indices = this.highlightedIndices;
+        }
+
         const response = await getDistanceCorrelation(params);
         this.distanceCorrelations = response;
-        
-        // Parse the keys to extract variables and objectives
+
         this.parsePlotConfiguration(response);
-        
-        // Now fetch data with the dynamic variables
         await this.fetchData();
-        
+
         await this.sendDistanceCorrelationContextToChat(params, response);
       } catch (error) {
         console.error("Error fetching distance correlation:", error);
+      }
+    },
+
+    async getInsights() {
+      try {
+        const params = {
+          objective: this.$parent.currentObjective || 'both',
+          trace_name: this.$parent.currentTraceName || 'Unknown',
+          run_id: this.currentRunId || null,
+          evaluator: this.selectedModel || 'CASCADE',
+        };
+        // NEW: include subset for insights too, so the LLM commentary matches what's on screen
+        if (this.useHighlightedOnly && this.highlightedIndices.length > 0) {
+          params.selected_indices = this.highlightedIndices;
+        }
+
+        const response = await getDistanceCorrelationInsights(params);
+        const insights = response.insights;
+        const structuredData = response.structured_data;
+
+        this.$parent.lastDataMiningResults = {
+          type: 'distance_correlation',
+          structured_data: structuredData
+        };
+
+        this.$emit('send-insights-to-chat', insights);
+      } catch (error) {
+        console.error("Error getting insights:", error);
       }
     },
 
@@ -346,19 +405,21 @@ export default {
     
     async sendDistanceCorrelationContextToChat(params, response) {
       try {
+        // Don't fire the silent insights call without a run_id (PISTIL requires it)
+        if (!this.currentRunId) {
+          console.log('[DistanceCorrelation] Skipping insights context — no run_id yet');
+          return;
+        }
         const contextParams = {
           objective: 'both',
           trace_name: 'Unknown',
-          run_id: this.currentRunId,  // Use prop
-          evaluator: this.selectedModel || 'CASCADE'
+          run_id: this.currentRunId,
+          evaluator: this.selectedModel || 'CASCADE',
+          // NEW: forward selected objectives so PISTIL uses the right labels, not the Latency/Energy fallback
+          ...(this.selectedObjectives.length ? { objectives: this.selectedObjectives.join(',') } : {}),
         };
-        
         const insightsResponse = await getDistanceCorrelationInsights(contextParams);
-        const structuredData = insightsResponse.structured_data;
-        
-        this.$emit('send-insights-to-chat', structuredData, { silent: true });
-        
-        console.log('Distance correlation context sent to chat silently');
+        this.$emit('send-insights-to-chat', insightsResponse.structured_data, { silent: true });
       } catch (error) {
         console.error("Error sending distance correlation context to chat:", error);
       }
@@ -391,7 +452,31 @@ export default {
     console.log('[DistanceCorrelation] filePath:', this.filePath);
     
     this.fetchDistanceCorrelation();
-  }
+  },
+  watch: {
+    highlightedIndices: {
+      immediate: false,
+      handler(newVal, oldVal) {
+        // Auto-enable the toggle the first time highlights appear
+        if (newVal.length > 0 && (!oldVal || oldVal.length === 0)) {
+          this.useHighlightedOnly = true;
+        }
+        // Auto-disable when highlights are cleared
+        if (newVal.length === 0 && this.useHighlightedOnly) {
+          this.useHighlightedOnly = false;
+        }
+        // Re-filter scatter immediately, then re-run dCor for fresh numbers
+        this.applyPlotDataFilter();
+        if (this.fullPlotData) this.createPlots();
+        this.fetchDistanceCorrelation();
+      },
+    },
+  },
+  computed: {
+    isFiltered() {
+      return this.useHighlightedOnly && this.highlightedIndices.length > 0;
+    },
+  },
 };
 </script>
 
@@ -505,5 +590,59 @@ export default {
 .insights-button:hover {
   background-color: #2866cc;
   box-shadow: 0 4px 16px rgba(51,122,255,0.15);
+}
+
+.highlight-toggle-row {
+  display: flex;
+  justify-content: flex-start;
+  margin: 0.5rem 0 1rem 0;
+  padding: 0.5rem 0.75rem;
+  background: #f5f8ff;
+  border: 1px solid #d1e7ff;
+  border-radius: 6px;
+}
+
+.highlight-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #2d3748;
+  cursor: pointer;
+}
+
+.highlight-toggle.disabled {
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.highlight-toggle input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.highlight-toggle.disabled input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
+.highlight-count {
+  color: #337aff;
+  font-weight: 600;
+}
+
+.highlight-toggle.disabled .highlight-count {
+  color: #9ca3af;
+}
+
+.subset-badge {
+  align-self: flex-end;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #2563eb;
+  background: #dbeafe;
+  border: 1px solid #93c5fd;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-bottom: 0.25rem;
 }
 </style> 
