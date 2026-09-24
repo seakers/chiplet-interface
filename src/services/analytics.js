@@ -6,7 +6,11 @@ import axios from 'axios';
  * @returns {Promise<Object>} - The parsed response data
  */
 export async function getRuleMining(params = {}) {
-  const response = await axios.get('/api/rule-mining/', { params });
+  const cleanParams = { ...params };
+  if (Array.isArray(cleanParams.selected_indices)) {
+    cleanParams.selected_indices = cleanParams.selected_indices.join(',');
+  }
+  const response = await axios.get('/api/rule-mining/', { params: cleanParams });
   return response.data;
 }
 
@@ -26,7 +30,11 @@ export async function getRuleMiningInsights(params = {}) {
  * @returns {Promise<Object>} - The parsed response data
  */
 export async function getDistanceCorrelation(params = {}) {
-  const response = await axios.get('/api/distance-correlation/', { params });
+  const cleanParams = { ...params };
+  if (Array.isArray(cleanParams.selected_indices)) {
+    cleanParams.selected_indices = cleanParams.selected_indices.join(',');
+  }
+  const response = await axios.get('/api/distance-correlation/', { params: cleanParams });
   return response.data;
 }
 
@@ -36,7 +44,11 @@ export async function getDistanceCorrelation(params = {}) {
  * @returns {Promise<Object>} - The parsed response data with insights and structured_data
  */
 export async function getDistanceCorrelationInsights(params = {}) {
-  const response = await axios.get('/api/distance-correlation-insights/', { params });
+  const cleanParams = { ...params };
+  if (Array.isArray(cleanParams.selected_indices)) {
+    cleanParams.selected_indices = cleanParams.selected_indices.join(',');
+  }
+  const response = await axios.get('/api/distance-correlation-insights/', { params: cleanParams });
   return response.data;
 }
 
@@ -55,10 +67,13 @@ export async function askDataMiningFollowup(data) {
  * @param {string} runId - Optional run ID to get specific run parameters
  * @returns {Promise<Object>} - The parsed response data with download link
  */
-export async function generateOptimizationReport(runId = null) {
+export async function generateOptimizationReport(runId = null, objectives = null) {
   const params = {};
   if (runId) {
     params.run_id = runId;
+  }
+  if (objectives) {
+    params.objectives = objectives;
   }
   const response = await axios.get('/api/generate-optimization-report/', { params });
   return response.data;
@@ -70,11 +85,14 @@ export async function generateOptimizationReport(runId = null) {
  * @param {string} runBId - ID of the second run to compare
  * @returns {Promise<Object>} - The parsed response data with download link
  */
-export async function generateComparativeReport(runAId, runBId) {
+export async function generateComparativeReport(runAId, runBId, objectives = null) {
   const params = {
     run_a_id: runAId,
     run_b_id: runBId
   };
+  if (objectives) {
+    params.objectives = objectives;
+  }
   const response = await axios.get('/api/generate-comparative-report/', { params });
   return response.data;
 }

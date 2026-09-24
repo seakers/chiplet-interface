@@ -1,11 +1,15 @@
 <template>
   <div class="data-mining">
+    
     <div class="data-mining-header">
       <h2 class="data-mining-title">Data Mining</h2>
       <button class="close-btn" @click="$emit('close')">×</button>
     </div>
-    <div class="data-mining-content">
+    
+    <div class="data-mining-content">   
+       
       <div class="analysis-cards">
+        
         <div class="analysis-card" @click="showRuleMining = !showRuleMining" :class="{ active: showRuleMining }">
           <div class="card-content">
             <h3 class="card-title">Rule Mining</h3>
@@ -25,7 +29,7 @@
             </button>
           </div>
         </div>
-
+        
         <div class="analysis-card" @click="showDistanceCorrelation = !showDistanceCorrelation" :class="{ active: showDistanceCorrelation }">
           <div class="card-content">
             <h3 class="card-title">Distance Correlation Study</h3>
@@ -46,19 +50,38 @@
           </div>
         </div>
       </div>
+      
+      <!-- Analysis windows remain the same -->
       <div v-if="showRuleMining" class="analysis-window">
         <div class="analysis-window-header">
           <h3>Rule Mining</h3>
           <button @click="showRuleMining = false" class="close-btn" aria-label="Close">&times;</button>
         </div>
-        <RuleMining :filePath="filePath" @send-insights-to-chat="$emit('send-insights-to-chat', $event)" />
+        <RuleMining
+          :filePath="filePath"
+          :selectedModel="selectedModel"
+          :currentRunId="currentRunId"
+          :agentResults='ruleMiningData'
+          :selectedObjectives='selectedObjectives'
+          :highlightedIndices="highlightedIndices"
+          @send-insights-to-chat="$emit('send-insights-to-chat', $event)"
+          @highlight-from-rulemining="$emit('highlight-from-rulemining', $event)"
+        />
       </div>
+      
       <div v-if="showDistanceCorrelation" class="analysis-window">
         <div class="analysis-window-header">
           <h3>Distance Correlation Study</h3>
           <button @click="showDistanceCorrelation = false" class="close-btn" aria-label="Close">&times;</button>
         </div>
-        <DistanceCorrelation :filePath="filePath" @send-insights-to-chat="$emit('send-insights-to-chat', $event)" />
+          <DistanceCorrelation
+            :filePath="filePath"
+            :selectedModel="selectedModel"
+            :currentRunId="currentRunId"
+            :selectedObjectives="selectedObjectives"
+            :highlightedIndices="highlightedIndices"
+            @send-insights-to-chat="$emit('send-insights-to-chat', $event)"
+          />
       </div>
     </div>
   </div>
@@ -74,6 +97,40 @@ export default {
     RuleMining,
     DistanceCorrelation,
   },
+  props: {
+    filePath: {
+      type: String,
+      default: null
+    },
+    selectedModel: {
+      type: String,
+      default: null
+    },
+    currentRunId: {
+      type: String,
+      default: null
+    },
+    closable: {
+      type: Boolean,
+      default: true
+    },
+    agentDcorrData: {
+      type: Object,
+      default: null
+    },
+    agentRuleMiningData: {
+      type: Object,
+      default: null
+    },
+    selectedObjectives: {
+      type: Array,
+      default: () => []
+    },
+    highlightedIndices: {
+      type: Array,
+      default: () => []
+    },
+  },
   data() {
     return {
       showRuleMining: false,
@@ -84,16 +141,32 @@ export default {
       error: null
     };
   },
-  props: {
-    filePath: {
-      type: String,
-      default: null
+  watch: {
+    agentDcorrData(newData) {
+      if (newData) {
+        console.log('DataMining: Agent pushed distance correlation data');
+        this.showDistanceCorrelation = true;
+        this.distanceCorrelationData = newData;
+        this.$emit('agent-data-consumed');
+      }
     },
-    closable: {
-      type: Boolean,
-      default: true
+    agentRuleMiningData(newData) {
+      if (newData) {
+        console.log('DataMining: Agent pushed rule mining data');
+        this.showRuleMining = true;
+        this.ruleMiningData = newData;
+      }
     }
   },
+  mounted() {
+    console.log('=== DataMining mounted DEBUG ===');
+    console.log('DataMining received props:');
+    console.log('  selectedModel:', this.selectedModel);
+    console.log('  filePath:', this.filePath);
+    console.log('  currentRunId:', this.currentRunId);
+    console.log('  typeof currentRunId:', typeof this.currentRunId);
+    console.log('=== END DEBUG ===');
+  }
 };
 </script>
 

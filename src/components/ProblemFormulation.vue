@@ -58,15 +58,27 @@
             </div>
             <div class="form-group">
               <label class="form-label">Traces & Weights</label>
-              <div v-for="(tw, idx) in traceWeights" :key="idx" class="trace-weight-row">
-                <select v-model="tw.name" class="form-select trace-select">
-                  <option v-for="trace in traceOptions" :key="trace" :value="trace">{{ trace }}</option>
-                </select>
-                <input type="number" v-model.number="tw.weight" min="0" max="1" step="0.01" class="form-input trace-weight-input" placeholder="Weight (0-1)" />
-                <button type="button" class="remove-trace-btn" @click="removeTrace(idx)">❌</button>
+              <div v-if="selectedModel === 'CASCADE'">
+                <div v-for="(tw, idx) in traceWeights" :key="idx" class="trace-weight-row">
+                  <select v-model="tw.name" class="form-select trace-select">
+                    <option v-for="trace in traceOptions" :key="trace" :value="trace">{{ trace }}</option>
+                  </select>
+                  <input type="number" v-model.number="tw.weight" min="0" max="1" step="0.01" class="form-input trace-weight-input" placeholder="Weight (0-1)" />
+                  <button type="button" class="remove-trace-btn" @click="removeTrace(idx)">❌</button>
+                </div>
+                <button type="button" class="add-trace-btn" @click="addTrace">+ Add Trace</button>
+                <div v-if="validationErrors.traces" class="field-error">{{ validationErrors.traces }}</div>
               </div>
-              <button type="button" class="add-trace-btn" @click="addTrace">+ Add Trace</button>
-              <div v-if="validationErrors.traces" class="field-error">{{ validationErrors.traces }}</div>
+              <div v-else>
+                <!-- Pistil Model Selection - integrated into Traces & Weights section -->
+                <div class="trace-weight-row">
+                  <select v-model="pistilModel" class="form-select trace-select">
+                    <option v-for="m in pistilModelOptions" :key="m" :value="m">
+                      {{ m }}
+                    </option>
+                  </select>
+                </div>
+              </div>
             </div>
           </div>
           <div class="form-col">
@@ -75,6 +87,7 @@
               <select id="algorithm" v-model="selectedAlgorithm" class="form-select" :class="{ 'error': validationErrors.algorithm }">
                 <option value="Genetic Algorithm">Genetic Algorithm</option>
                 <option value="Full-Factorial">Full-Factorial</option>
+                <option value="Deep RL">Deep RL</option>
               </select>
               <div v-if="validationErrors.algorithm" class="field-error">{{ validationErrors.algorithm }}</div>
             </div>
@@ -108,6 +121,16 @@
                 </div>
               </div>
             </div>
+          </div>
+          <div v-if="selectedAlgorithm === 'Deep RL'" class="form-group">
+            <label class="form-label" for="episodes">Number of Episodes</label>
+            <input id="episodes" type="number" v-model.number="deepRLEpisodes" class="form-input" min="1" :class="{ 'error': validationErrors.episodes }" />
+            <div v-if="validationErrors.episodes" class="field-error">{{ validationErrors.episodes }}</div>
+          </div>
+          <div v-if="selectedAlgorithm === 'Deep RL'" class="form-group">
+            <label class="form-label" for="miniBatchSize">Mini-Batch Size</label>
+            <input id="miniBatchSize" type="number" v-model.number="deepRLMiniBatchSize" class="form-input" min="1" :class="{ 'error': validationErrors.miniBatchSize }" />
+            <div v-if="validationErrors.miniBatchSize" class="field-error">{{ validationErrors.miniBatchSize }}</div>
           </div>
           </div>
         </div>
@@ -191,10 +214,18 @@
         <h3 class="view-title">Load Previous Run</h3>
       </div>
       <div class="load-previous-content">
-        <p class="load-previous-description">Select a previous optimization run to load and analyze:</p>
+        <p class="load-previous-description">
+          Select a previous optimization run to load and analyze:
+        </p>
+
         <div class="form-group">
           <label class="form-label" for="previous-run">Select Run</label>
-          <select id="previous-run" v-model="selectedPreviousRun" class="form-select" :disabled="loadingBackupFiles">
+          <select
+            id="previous-run"
+            v-model="selectedPreviousRun"
+            class="form-select"
+            :disabled="loadingBackupFiles"
+          >
             <option value="">
               {{ loadingBackupFiles ? 'Loading previous runs...' : 'Choose a run...' }}
             </option>
@@ -208,13 +239,6 @@
           <div v-else-if="previousRuns.length === 0" class="no-runs-message">
             No previous optimization runs found.
           </div>
-        </div>
-        
-        <!-- Restart From Previous Run Controls -->
-        <div v-if="loadedRunMetadata" class="form-group">
-          <label class="form-label" for="restart-generations">Generations for Restarted Run</label>
-          <input id="restart-generations" type="number" v-model.number="restartGenerations" min="1" class="form-input" />
-          <small class="form-hint">Starts a new GA run seeded with the loaded designs as the initial population.</small>
         </div>
 
         <!-- Loaded Run Configuration Display -->
@@ -251,31 +275,118 @@
             </div>
           </div>
         </div>
-        
+
+        <!-- ✅ NEW: Objective selector shown after a run is loaded -->
+        <div v-if="loadedRunMetadata" class="form-group loaded-run-objectives">
+          <label class="form-label">
+            Select Objectives to Visualize
+            <span class="form-hint-inline">(up to 3)</span>
+          </label>
+
+          <!-- Error message if over limit -->
+          <div v-if="loadedRunSelectedObjectives.length > 3" class="field-error">
+            You can select at most 3 objectives.
+          </div>
+
+          <div
+            class="custom-multiselect"
+            :class="{ 'error': loadedRunSelectedObjectives.length > 3 }"
+            @click="loadedRunObjectivesDropdownOpen = !loadedRunObjectivesDropdownOpen"
+          >
+            <div class="selected-summary">
+              {{
+                loadedRunSelectedObjectives.length
+                  ? loadedRunSelectedObjectives.join(', ')
+                  : 'Select objectives...'
+              }}
+            </div>
+            <div
+              v-if="loadedRunObjectivesDropdownOpen"
+              class="dropdown-list"
+              @click.stop
+            >
+              <div
+                v-for="obj in loadedRunObjectivesOptions"
+                :key="obj"
+                class="dropdown-item"
+              >
+                <label>
+                  <input
+                    type="checkbox"
+                    :value="obj"
+                    v-model="loadedRunSelectedObjectives"
+                    :disabled="
+                      !loadedRunSelectedObjectives.includes(obj) &&
+                      loadedRunSelectedObjectives.length >= 3
+                    "
+                  />
+                  {{ obj }}
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <!-- Helper chips showing what's selected -->
+          <div v-if="loadedRunSelectedObjectives.length" class="selected-chips">
+            <span
+              v-for="obj in loadedRunSelectedObjectives"
+              :key="obj"
+              class="chip"
+            >
+              {{ obj }}
+              <button
+                class="chip-remove"
+                @click.stop="loadedRunSelectedObjectives = loadedRunSelectedObjectives.filter(o => o !== obj)"
+              >×</button>
+            </span>
+          </div>
+        </div>
+
+        <!-- Restart From Previous Run Controls -->
+        <div v-if="loadedRunMetadata" class="form-group">
+          <label class="form-label" for="restart-generations">
+            Generations for Restarted Run
+          </label>
+          <input
+            id="restart-generations"
+            type="number"
+            v-model.number="restartGenerations"
+            min="1"
+            class="form-input"
+          />
+          <small class="form-hint">
+            Starts a new GA run seeded with the loaded designs as the initial population.
+          </small>
+        </div>
+
         <div class="form-actions">
-          <button class="btn btn-primary" :disabled="!selectedPreviousRun" @click="loadPreviousRun">
+          <button
+            class="btn btn-primary"
+            :disabled="!selectedPreviousRun || !canLoadRun"
+            @click="loadPreviousRun"
+          >
             Load Run
           </button>
 
-          <button 
-            class="btn btn-secondary" 
+          <button
+            class="btn btn-secondary"
             :disabled="!loadedRunMetadata || !selectedPreviousRun || loading"
             @click="restartFromPreviousRun"
           >
             Restart From This Run
           </button>
 
-          <button 
-            type="button" 
-            class="btn btn-secondary data-mining-btn" 
+          <button
+            type="button"
+            class="btn btn-secondary data-mining-btn"
             :disabled="!hasOptimizationData"
             @click="runDataMining"
           >
             Data Mining
           </button>
-          <button 
-            type="button" 
-            class="btn btn-secondary generate-report-btn" 
+          <button
+            type="button"
+            class="btn btn-secondary generate-report-btn"
             :disabled="!hasOptimizationData || loading"
             @click="generateReport"
           >
@@ -298,6 +409,7 @@
 
 <script>
 import { runOptimization } from '../services/optimization.js';
+import { runGA } from '../services/ga.js';
 import { ref, defineComponent, watch } from 'vue';
 import { getRuleMining, getDistanceCorrelation } from '../services/analytics.js';
 import { generateOptimizationReport } from '../services/analytics.js';
@@ -391,7 +503,16 @@ export default {
     RunForm,
     ComparativeStudy
   },
-  emits: ['optimization-success', 'data-mining-complete', 'report-generated', 'run-id-updated', 'view-changed'],
+  emits: [
+    'optimization-success',
+    'data-mining-complete',
+    'report-generated',
+    'run-id-updated',
+    'view-changed',
+    'model-selected',
+    'objectives-changed',
+    'trace-or-model-selected',
+  ],
   data() {
     return {
       currentView: 'welcome', // 'welcome', 'new-optimization', 'load-previous', 'comparative'
@@ -442,14 +563,7 @@ export default {
       isRunning: false,
       dropdownOpen: false,
       selectedObjectives: [],
-      objectivesOptions: [
-        'Energy',
-        'Runtime',
-        'Temperature',
-        'Area',
-        'Latency',
-        'Throughput',
-      ],
+      // Objectives will be computed based on selectedModel
       traceOptions: [
         "gpt-j-65536-weighted",
         "gpt-j-1024-weighted",
@@ -457,6 +571,10 @@ export default {
         "ogbn-products-test",
         "resnet50-test"
       ],
+      pistilModelOptions: [
+        "llama3-8b"
+      ],
+      pistilModel: "llama3-8b",
       traceWeights: [
         { name: 'gpt-j-65536-weighted', weight: 1.0 }
       ],
@@ -471,9 +589,47 @@ export default {
       loadedRunMetadata: null, // Will store metadata of the loaded run
       restartGenerations: 20,
       statusPollingInterval: null, // Interval for polling run status
+      expectedPistilPoints: 0, // Expected number of points for current Pistil GA run
+      pistilRunId: null, // Current Pistil run ID being tracked
+      pistilStatusCheckInterval: null, // Interval for checking Pistil GA completion
+      // Deep RL specific inputs
+      deepRLEpisodes: 100,
+      deepRLMiniBatchSize: 32,
+      loadedRunSelectedObjectives: [], // NEW: objectives chosen by user when loading a run
+      loadedRunObjectivesDropdownOpen: false, // NEW: dropdown state
+      _suppressObjectiveClear: false,
+      loadingMetadata: false,
     };
   },
   computed: {
+    // Model-specific objectives
+    objectivesOptions() {
+      if (this.selectedModel === 'PISTIL') {
+        return [
+          'Latency per Token',
+          'Energy per Inference',
+          'Energy per Token',
+          'Average Power',
+          'System Power',
+          'System Cost',
+          'Avg Compute Util',
+          'Avg Memory Util',
+          'Prefill Tokens/sec',
+          'System Compute',
+          'System Bandwidth',
+          'System Capacity'
+        ];
+      } else {
+        // CASCADE objectives
+        return [
+          'Energy',
+          'Runtime',
+          'DRAM',
+          'Memory',
+          'FLOPS',
+        ];
+      }
+    },
     canRunComparative() {
       return (
         this.sharedConfig.selectedObjectives.length > 0 &&
@@ -493,6 +649,41 @@ export default {
     },
     validationSummary() {
       return this.validateForm().errors;
+    },
+    loadedRunObjectivesOptions() {
+      const model = this.loadedRunMetadata?.model || 'CASCADE';
+      if (model === 'PISTIL') {
+        return [
+          'Latency per Token',
+          'Energy per Inference',
+          'Energy per Token',
+          'Average Power',
+          'System Power',
+          'System Cost',
+          'Avg Compute Util',
+          'Avg Memory Util',
+          'Prefill Tokens/sec',
+          'System Compute',
+          'System Bandwidth',
+          'System Capacity',
+        ];
+      }
+      return ['Energy', 'Runtime', 'DRAM', 'Memory', 'FLOPS'];
+    },
+    canLoadRun() {
+      return (
+        !!this.selectedPreviousRun &&
+        !!this.loadedRunMetadata &&
+        this.loadedRunSelectedObjectives.length >= 1 &&
+        this.loadedRunSelectedObjectives.length <= 3
+      );
+    },
+    currentTraceOrModel() {
+      if (this.selectedModel === 'PISTIL') {
+        return this.pistilModel || 'llama3-8b';
+      }
+      // CASCADE: send the first trace name (or join, if backend supports lists)
+      return this.traceWeights?.[0]?.name || 'gpt-j-65536-weighted';
     },
     
   },
@@ -515,7 +706,10 @@ export default {
 
       // Check objectives selection
       if (!this.selectedObjectives || this.selectedObjectives.length === 0) {
-        errors.objectives = 'At least one objective must be selected';
+        errors.objectives = 'Select between 1 and 3 objectives';
+        isValid = false;
+      } else if (this.selectedObjectives.length > 3) {
+        errors.objectives = 'At most 3 objectives are supported';
         isValid = false;
       }
 
@@ -550,6 +744,15 @@ export default {
         }
       } else if (this.selectedAlgorithm === 'Full-Factorial') {
         // no extra params for v1 (unconstrained, total fixed at 12)
+      } else if (this.selectedAlgorithm === 'Deep RL') {
+        if (!this.deepRLEpisodes || this.deepRLEpisodes < 1) {
+          errors.episodes = 'Number of episodes must be at least 1';
+          isValid = false;
+        }
+        if (!this.deepRLMiniBatchSize || this.deepRLMiniBatchSize < 1) {
+          errors.miniBatchSize = 'Mini-batch size must be at least 1';
+          isValid = false;
+        }
       }
 
       return { isValid, errors };
@@ -585,6 +788,9 @@ export default {
       this.hasOptimizationData = false; // Reset data availability when starting new optimization
       this.currentRunId = ''; // Reset run ID
       
+      // Stop any existing Pistil GA status check if starting a new run
+      this.stopPistilGAStatusCheck();
+      
       // CRITICAL: Ensure algorithm is explicitly set based on user selection
       const selectedAlgorithm = this.selectedAlgorithm || 'Genetic Algorithm';
       console.log('ProblemFormulation: User selected algorithm:', selectedAlgorithm);
@@ -596,6 +802,7 @@ export default {
         traces: this.traceWeights.map(tw => ({ name: tw.name, weight: tw.weight })),
         population_size: this.populationSize,
         generations: this.generations,
+        ...(this.selectedModel === 'PISTIL' && { pistil_model: this.pistilModel || 'llama3-8b' })
       };
       
       console.log('ProblemFormulation: Payload algorithm:', payload.algorithm);
@@ -629,79 +836,110 @@ export default {
           return;
         }
       }
-      
-      try {
-        // CRITICAL: Set lastAlgorithm BEFORE running optimization so polling uses correct algorithm
-        // This must happen for BOTH GA and Full-Factorial
+
+      if (this.selectedAlgorithm === 'Deep RL') {
         try {
-          if (typeof window !== 'undefined') {
-            // Use the explicitly selected algorithm (should be 'Genetic Algorithm' or 'Full-Factorial')
-            const algorithm = selectedAlgorithm; // Use the variable we set earlier
-            window.__lastAlgorithm = algorithm;
-            if (window.localStorage) {
-              window.localStorage.setItem('lastAlgorithm', algorithm);
+          const deepRLParams = {
+            model: this.selectedModel,
+            algorithm: 'Deep RL',
+            objectives: this.selectedObjectives,
+            traces: this.traceWeights.map(tw => ({ name: tw.name, weight: tw.weight })),
+            episodes: this.deepRLEpisodes,
+            mini_batch_size: this.deepRLMiniBatchSize,
+            ...(this.selectedModel === 'PISTIL' && { pistil_model: this.pistilModel || 'llama3-8b' })
+          };
+
+          console.log('ProblemFormulation: Calling runOptimization for Deep RL with params:', deepRLParams);
+
+          // Set lastAlgorithm for plot labeling
+          try {
+            if (typeof window !== 'undefined') {
+              window.__lastAlgorithm = 'Deep RL';
+              if (window.localStorage) {
+                window.localStorage.setItem('lastAlgorithm', 'Deep RL');
+              }
             }
-            console.log('✅ ProblemFormulation: Set lastAlgorithm to:', algorithm, 'before running optimization');
-            console.log('✅ ProblemFormulation: selectedAlgorithm is:', this.selectedAlgorithm);
-            console.log('✅ ProblemFormulation: payload.algorithm is:', payload.algorithm);
-            
-            // Verify algorithm is correctly set
-            if (algorithm !== 'Genetic Algorithm' && algorithm !== 'Full-Factorial') {
-              console.warn('⚠️ WARNING: Algorithm is not Genetic Algorithm or Full-Factorial:', algorithm);
-            }
+          } catch (e) {
+            console.error('Error setting lastAlgorithm for Deep RL:', e);
           }
-        } catch (e) {
-          console.error('Error setting lastAlgorithm:', e);
-        }
-        
-        console.log('✅ ProblemFormulation: About to call runOptimization with algorithm:', payload.algorithm);
-        const response = await runOptimization(payload);
-        console.log('ProblemFormulation: Raw response:', response);
-        console.log('ProblemFormulation: Response type:', typeof response);
-        console.log('ProblemFormulation: Response keys:', Object.keys(response));
-        console.log('ProblemFormulation: Response.data:', response.data);
-        console.log('ProblemFormulation: Response.data type:', typeof response.data);
-        console.log('ProblemFormulation: Response.data keys:', response.data ? Object.keys(response.data) : 'no data');
-        
-        this.loading = false;
-        this.hasOptimizationData = true; // Set data availability
-        
-        // CRITICAL: Use run_id from database (not run_directory) for status polling
-        // run_id is the database identifier (e.g., "run_20251103_005130_abc12345")
-        // run_directory is the filesystem directory (e.g., "myrun_2025Nov03_005130")
-        const databaseRunId = response.data.run_id;
-        const runDirectory = response.data.run_directory;
-        
-        // Store run_directory for plot polling, but use run_id for status checking
-        this.currentRunId = runDirectory;
-        
-        console.log('ProblemFormulation: Optimization successful');
-        console.log('ProblemFormulation: Response data:', response.data);
-        console.log('ProblemFormulation: Database run_id:', databaseRunId);
-        console.log('ProblemFormulation: Run directory:', runDirectory);
-        console.log('ProblemFormulation: Using database run_id for status polling');
-        
-        // For Full-Factorial, start polling status in both online and offline modes
-        // Use database run_id for status polling (not run_directory)
-        if (this.selectedAlgorithm === 'Full-Factorial') {
-          // Always poll for Full-Factorial runs (both online and offline can be async)
-          if (databaseRunId) {
-            this.startStatusPolling(databaseRunId);
+
+          const response = await runOptimization(deepRLParams);
+          console.log('ProblemFormulation: Deep RL response:', response);
+
+          // FIX: For PISTIL Deep RL, pistil_run_id is the directory key the
+          // plot's fetchChartData uses to find the correct points.csv [1].
+          // Priority: pistil_run_id > run_id > run_directory > deep_rl_run_id
+          let runId;
+          if (this.selectedModel === 'PISTIL') {
+            runId = response.data?.pistil_run_id   // "pistil_run_YYYYMMDD_HHMMSS" ← correct dir
+                || response.data?.deep_rl_run_id
+                || response.data?.run_directory
+                || response.data?.run_id
+                || '';
+            console.log('ProblemFormulation: PISTIL Deep RL - using pistil_run_id:', runId);
           } else {
-            console.warn('⚠️ No database run_id provided, using run_directory:', runDirectory);
-            this.startStatusPolling(runDirectory);
+            // CASCADE Deep RL: run_directory is the filesystem dir for polling
+            runId = response.data?.run_directory
+                || response.data?.deep_rl_run_id
+                || response.data?.run_id
+                || '';
+            console.log('ProblemFormulation: CASCADE Deep RL - using run_directory:', runId);
           }
-        } else if (this.selectedAlgorithm === 'Genetic Algorithm') {
-          // GA runs complete synchronously, but check status after a delay
-          const runIdToCheck = databaseRunId || runDirectory;
-          setTimeout(() => this.checkRunStatus(runIdToCheck), 2000);
+
+          this.currentRunId = runId;
+          this.hasOptimizationData = true;
+          console.log('ProblemFormulation: Deep RL started. Run ID:', runId);
+
+          // Emit events - include both keys for backward compat
+          this.$emit('optimization-success', {
+            ...response.data,
+            run_directory: runId,
+            deep_rl_run_id: runId,
+            pistil_run_id: runId,  // ensure plot watcher always sees this
+          });
+          this.$emit('run-id-updated', runId);
+
+          this.loading = false;
+          return;
+
+        } catch (error) {
+          console.error('ProblemFormulation: Deep RL run failed:', error);
+          this.loading = false;
+          this.errorMessage = error.response?.data?.error || 'Failed to run Deep RL optimization.';
+          return;
         }
-        
-        // Emit event for parent/plot update if needed
+      }
+      
+      // NORMAL FLOW FOR ALL GA (CASCADE and PISTIL)
+      try {
+        // Set lastAlgorithm
+        if (typeof window !== 'undefined') {
+          window.__lastAlgorithm = selectedAlgorithm;
+          if (window.localStorage) {
+            window.localStorage.setItem('lastAlgorithm', selectedAlgorithm);
+          }
+        }
+
+        const response = await runOptimization(payload);
+        console.log('ProblemFormulation: Response:', response);
+
+        const runId = response.data.pistil_run_id || response.data.run_id || response.data.run_directory;
+        this.currentRunId = runId;
+        this.hasOptimizationData = true;
+
+        // For PISTIL GA, start polling for completion
+        if (this.selectedModel === 'PISTIL' && this.selectedAlgorithm === 'Genetic Algorithm') {
+          const expectedPoints = this.populationSize * this.generations;
+          this.expectedPistilPoints = expectedPoints;
+          this.pistilRunId = runId;
+          this.startPistilGAStatusCheck(runId, expectedPoints);
+        }
+
         this.$emit('optimization-success', response.data);
-        console.log('ProblemFormulation: Emitting run-id-updated with:', this.currentRunId);
-        this.$emit('run-id-updated', this.currentRunId); // Emit run-id-updated
+        this.$emit('run-id-updated', runId);
+        this.loading = false;
       } catch (error) {
+        console.error('ProblemFormulation: Optimization failed:', error);
         this.loading = false;
         this.errorMessage = error.response?.data?.error || 'Failed to run optimization.';
       }
@@ -736,6 +974,29 @@ export default {
       this._ffParamsCached = null;
       this.isEstimating = false;
       this.loading = false;
+    },
+    async fetchRunMetadata(backupFilename) {
+      if (!backupFilename) {
+        this.loadedRunMetadata = null;
+        this.loadedRunSelectedObjectives = [];
+        return;
+      }
+      this.loadingMetadata = true;
+      try {
+        const response = await axios.post('/api/load-previous-run/', {
+          backup_filename: backupFilename,
+          metadata_only: true,
+        });
+        if (response.data.status === 'success') {
+          this.loadedRunMetadata = response.data.metadata;
+          this._loadedRunCache = response.data;
+        }
+      } catch (err) {
+        console.error('Failed to fetch run metadata preview:', err);
+        this.loadedRunMetadata = null;
+      } finally {
+        this.loadingMetadata = false;
+      }
     },
     async confirmFullFactorialRun() {
       this.loading = true;            
@@ -813,43 +1074,88 @@ export default {
     },
     async loadPreviousRun() {
       if (!this.selectedPreviousRun) return;
+
+      // Validate objective selection BEFORE doing anything
+      if (!this.loadedRunSelectedObjectives ||
+          this.loadedRunSelectedObjectives.length === 0) {
+        this.errorMessage = 'Please select at least one objective before loading.';
+        return;
+      }
+
       this.loading = true;
-      this.hasOptimizationData = false; // Reset data availability when loading previous run
-      this.currentRunId = ''; // Reset current run ID
-      this.loadedRunMetadata = null; // Clear previous metadata
-      
+      this.errorMessage = '';
+      this.hasOptimizationData = false;
+      this.currentRunId = '';
+
       try {
-        // Call the new load_previous_run endpoint
-        const response = await axios.post('/api/load-previous-run/', {
-          backup_filename: this.selectedPreviousRun
-        });
-        
-        if (response.data.status === 'success') {
-          this.loading = false;
-          this.hasOptimizationData = true; // Set data availability
-          this.currentRunId = response.data.run_id; // Set current run ID
-          this.loadedRunMetadata = response.data.metadata; // Store metadata
-          
-          // Emit the loaded data to parent component
-          this.$emit('optimization-success', {
-            data: response.data.points,
-            plot_data: response.data.points,
-            run_directory: response.data.run_id,
-            loaded_from_backup: true,
-            backup_filename: response.data.backup_filename,
-            has_zip_file: response.data.has_zip_file
-          });
-          
-          // Emit run ID update
-          this.$emit('run-id-updated', response.data.run_id);
-          
-          console.log('Successfully loaded previous run:', response.data);
-        } else {
+        // Reuse cached payload from the metadata watcher if available
+        let response = this._loadedRunCache
+          ? { data: this._loadedRunCache }
+          : await axios.post('/api/load-previous-run/', {
+              backup_filename: this.selectedPreviousRun,
+            });
+
+        if (response.data.status !== 'success') {
           throw new Error(response.data.message || 'Failed to load previous run');
         }
+
+        this.loading = false;
+        this.hasOptimizationData = true;
+        this.currentRunId = response.data.run_id;
+        this.loadedRunMetadata = response.data.metadata;
+
+        const evaluator =
+          response.data.evaluator ||
+          response.data.metadata?.model ||
+          (this.selectedPreviousRun.startsWith('pistil_run_') ? 'PISTIL' : 'CASCADE');
+
+        // User's chosen objectives ALWAYS win at this point
+        const objectivesToUse = [...this.loadedRunSelectedObjectives];
+
+        // 1. Set model with watcher-suppression
+        this._suppressObjectiveClear = true;
+        this.selectedModel = evaluator;
+        if (evaluator === 'CASCADE' && Array.isArray(this.loadedRunMetadata.traces) && this.loadedRunMetadata.traces.length) {
+          this.traceWeights = this.loadedRunMetadata.traces.map(t => ({
+            name: t.name || t,
+            weight: t.weight ?? 1.0,
+          }));
+        } else if (evaluator === 'PISTIL' && this.loadedRunMetadata.pistil_model) {
+          this.pistilModel = this.loadedRunMetadata.pistil_model;
+        }
+        this.$nextTick(() => { this._suppressObjectiveClear = false; });
+
+        // 2. Sync state
+        this.selectedObjectives = objectivesToUse;
+
+        // 3. Emit objectives FIRST so Plot/DesignVisualizer have correct axes
+        this.$emit('objectives-changed', objectivesToUse);
+        this.$emit('model-selected', evaluator);
+
+        // 4. Emit data load
+        this.$emit('optimization-success', {
+          data:               response.data.data,
+          plot_data:          response.data.data,
+          run_directory:      response.data.run_id,
+          run_id:             response.data.run_id,
+          loaded_from_backup: true,
+          backup_filename:    this.selectedPreviousRun,
+          model:              evaluator,
+          evaluator:          evaluator,
+          pistil_run_id:      evaluator === 'PISTIL' ? response.data.run_id : undefined,
+          objectives:         objectivesToUse,
+        });
+
+        this.$emit('run-id-updated', response.data.run_id);
+
+        console.log('[loadPreviousRun] Loaded with objectives:', objectivesToUse,
+                    'model:', evaluator);
       } catch (error) {
         this.loading = false;
-        this.errorMessage = error.response?.data?.message || error.message || 'Failed to load previous run.';
+        this.errorMessage =
+          error.response?.data?.message ||
+          error.message ||
+          'Failed to load previous run.';
         console.error('Error loading previous run:', error);
       }
     },
@@ -866,27 +1172,39 @@ export default {
           generations: this.restartGenerations,
           traces
         });
-          if (response.data && response.data.status === 'success') {
-            this.loading = false;
-            this.hasOptimizationData = true;
-            this.currentRunId = response.data.run_id; // e.g., restarted_run_*
-            
-            // Use initial points data directly from backend response
-            const initialPoints = response.data.initial_points || [];
-            console.log('Backend returned initial points:', initialPoints.length);
-            
-            // Emit to parent so plot shows original points immediately
-            this.$emit('optimization-success', {
-              data: initialPoints,
-              plot_data: initialPoints,
-              run_directory: response.data.run_id,
-              restarted_from_backup: true,
-              backup_filename: this.selectedPreviousRun
-            });
-            this.$emit('run-id-updated', response.data.run_id);
-          } else {
-          throw new Error(response.data?.message || 'Failed to restart run');
+        if (response.data && response.data.status === 'success') {
+          this.loading = false;
+          this.hasOptimizationData = true;
+          this.currentRunId = response.data.run_id;
+
+          const objectivesToUse =
+            this.loadedRunSelectedObjectives.length > 0
+              ? [...this.loadedRunSelectedObjectives]
+              : (this.loadedRunMetadata?.objectives || []);
+
+          // Sync + emit objectives BEFORE optimization-success (same fix as load)
+          this._suppressObjectiveClear = true;
+          this.selectedModel = this.loadedRunMetadata?.model || this.selectedModel;
+          this.$nextTick(() => { this._suppressObjectiveClear = false; });
+
+          this.selectedObjectives = objectivesToUse;
+          this.$emit('objectives-changed', objectivesToUse);
+
+          const initialPoints = response.data.initial_points || [];
+
+          this.$emit('optimization-success', {
+            data: initialPoints,
+            plot_data: initialPoints,
+            run_directory: response.data.run_id,
+            restarted_from_backup: true,
+            backup_filename: this.selectedPreviousRun,
+            objectives: objectivesToUse,
+          });
+          this.$emit('run-id-updated', response.data.run_id);
         }
+        else {
+        throw new Error(response.data?.message || 'Failed to restart run');
+      }
       } catch (error) {
         console.error('Error restarting from previous run:', error);
         this.errorMessage = error.response?.data?.message || error.message || 'Failed to restart from previous run.';
@@ -894,7 +1212,14 @@ export default {
       }
     },
     async fetchBackupFiles() {
+      // Only fetch if we haven't already loaded the files (avoid redundant API calls)
+      if (this.previousRuns.length > 0 && !this.loadingBackupFiles) {
+        console.log('[ProblemFormulation] Backup files already loaded, skipping fetch');
+        return;
+      }
+      
       this.loadingBackupFiles = true;
+      console.log('[ProblemFormulation] Fetching backup files from API...');
       try {
         const response = await axios.get('/api/list-backup-files/');
         if (response.data.status === 'success') {
@@ -902,14 +1227,15 @@ export default {
             id: backup.filename,
             name: backup.display_name,
             date: backup.timestamp,
-            filename: backup.filename
+            filename: backup.filename,
+            evaluator: backup.evaluator,
           }));
-          console.log('Loaded backup files:', this.previousRuns);
+          console.log('[ProblemFormulation] Loaded backup files:', this.previousRuns.length, 'runs found');
         } else {
           throw new Error(response.data.message || 'Failed to fetch backup files');
         }
       } catch (error) {
-        console.error('Error fetching backup files:', error);
+        console.error('[ProblemFormulation] Error fetching backup files:', error);
         this.errorMessage = 'Failed to load previous optimization runs.';
       } finally {
         this.loadingBackupFiles = false;
@@ -958,41 +1284,20 @@ export default {
     async runDataMining() {
       if (!this.hasOptimizationData) return;
       
-      try {
-        this.loading = true;
-        console.log('Running Data Mining...');
-        
-        // Prepare parameters for data mining
-        let miningParams = {};
-        
-        // Check if this is a loaded run and pass the correct file path
-        if (this.currentRunId && this.currentRunId.startsWith('loaded_run_')) {
-          // For loaded runs, use the temporary file path
-          const tempFilePath = `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${this.currentRunId}.csv`;
-          miningParams.file_path = tempFilePath;
-          console.log('Using loaded run file for data mining:', tempFilePath);
-        }
-        
-        // Run rule mining
-        const ruleMiningResponse = await getRuleMining(miningParams);
-        console.log('Rule Mining Results:', ruleMiningResponse);
-        
-        // Run distance correlation
-        const distanceCorrResponse = await getDistanceCorrelation(miningParams);
-        console.log('Distance Correlation Results:', distanceCorrResponse);
-        
-        // Emit the results to parent component for display
-        this.$emit('data-mining-complete', {
-          ruleMining: ruleMiningResponse,
-          distanceCorrelation: distanceCorrResponse
-        });
-        
-        this.loading = false;
-      } catch (error) {
-        console.error('Data Mining Error:', error);
-        this.errorMessage = 'Failed to run data mining analysis.';
-        this.loading = false;
+      // For PISTIL, ensure we have a run_id before opening data mining
+      if (this.selectedModel === 'PISTIL' && !this.currentRunId) {
+        console.error('Cannot run data mining for PISTIL without a run_id');
+        this.errorMessage = 'Please wait for the optimization to complete before running data mining.';
+        return;
       }
+      
+      console.log('Opening Data Mining with run_id:', this.currentRunId);
+      
+      // Emit event to App.vue to open the DataMining window
+      this.$emit('data-mining-complete', {
+        runId: this.currentRunId,
+        model: this.selectedModel
+      });
     },
     async generateReport() {
       if (!this.hasOptimizationData) return;
@@ -1030,7 +1335,8 @@ export default {
           }
         } else {
           // For current runs, generate a new report
-          reportResponse = await generateOptimizationReport(this.currentRunId);
+          // Include selected objectives in the report generation call
+          reportResponse = await generateOptimizationReport(this.currentRunId, this.selectedObjectives);
         }
         
         console.log('Report Generated:', reportResponse);
@@ -1176,24 +1482,136 @@ export default {
         console.log('✅ ProblemFormulation: Stopped status polling');
       }
     },
+    startPistilGAStatusCheck(runId, expectedPoints) {
+      // Stop any existing status check
+      if (this.pistilStatusCheckInterval) {
+        clearInterval(this.pistilStatusCheckInterval);
+      }
+      
+      console.log(`[ProblemFormulation] Starting Pistil GA status check for run ${runId}, expecting ${expectedPoints} points`);
+      
+          // Poll every 5 seconds to check if GA has completed
+      this.pistilStatusCheckInterval = setInterval(async () => {
+        try {
+          // Check the points.csv file to see how many points have been evaluated
+          const response = await axios.get('/api/chart-data/', {
+            params: {
+              model: 'PISTIL',
+              run_id: runId,
+              algorithm: 'Genetic Algorithm'
+            }
+          });
+          
+          const currentPoints = response.data?.data || [];
+          const pointsCount = currentPoints.length;
+          
+          console.log(`[ProblemFormulation] Pistil GA status: ${pointsCount}/${expectedPoints} points evaluated`);
+          
+          // If we've reached the expected number of points, GA is complete
+          if (pointsCount >= expectedPoints) {
+            console.log(`[ProblemFormulation] Pistil GA completed! All ${expectedPoints} points evaluated.`);
+            this.loading = false;
+            this.hasOptimizationData = true;
+            this.stopPistilGAStatusCheck();
+          }
+        } catch (error) {
+          console.error('[ProblemFormulation] Error checking Pistil GA status:', error);
+          // Don't stop checking on error - might be temporary
+        }
+      }, 5000); // Check every 5 seconds
+    },
+    stopPistilGAStatusCheck() {
+      if (this.pistilStatusCheckInterval) {
+        clearInterval(this.pistilStatusCheckInterval);
+        this.pistilStatusCheckInterval = null;
+        console.log('✅ ProblemFormulation: Stopped Pistil GA status check');
+      }
+    },
 
   },
   mounted() {
     document.addEventListener('click', this.handleClickOutside);
-    this.fetchBackupFiles(); // Fetch backup files on mount
+    // Don't fetch backup files on mount - only fetch when user selects "Load previous Run"
   },
   beforeDestroy() {
     document.removeEventListener('click', this.handleClickOutside);
     this.stopStatusPolling(); // Clean up polling on component destroy
+    this.stopPistilGAStatusCheck(); // Clean up Pistil GA status check
   },
   watch: {
-    currentView(newView) {
+    // Clear selected objectives when model changes and notify parent
+    selectedModel(newModel, oldModel) {
+      if (newModel === oldModel) return;
+
+      // Skip the auto-clear when loadPreviousRun is intentionally setting
+      // both the model and objectives in one go.
+      if (this._suppressObjectiveClear) {
+        console.log(`[ProblemFormulation] Model set to ${newModel} (objectives preserved)`);
+        this.$emit('model-selected', newModel);
+        return;
+      }
+
+      if (oldModel) {
+        this.selectedObjectives = [];
+        console.log(`[ProblemFormulation] Model changed from ${oldModel} to ${newModel}, cleared objectives`);
+      } else {
+        console.log(`[ProblemFormulation] Model selected: ${newModel}`);
+      }
+      this.$emit('model-selected', newModel);
+    },
+    currentView(newView, oldView) {
       // Emit view change event to parent component
       this.$emit('view-changed', newView);
+      
+      // Fetch backup files only when user selects "Load previous Run" view
+      if (newView === 'load-previous' && oldView !== 'load-previous') {
+        console.log('[ProblemFormulation] Load previous Run view selected, fetching backup files...');
+        this.fetchBackupFiles();
+      }
     },
     fullFactorialMode(newVal) {
       // Mode changed - no action needed
-    }
+    },
+    selectedObjectives(newVal, oldVal) {
+      if (newVal && newVal.length > 3) {
+        this.selectedObjectives = oldVal;
+        this.errorMessage = 'You can select at most 3 objectives.';
+        return;
+      }
+      this.$emit('objectives-changed', newVal || []);
+    },
+    // NEW: when metadata is fetched, pre-fill objectives from it
+    loadedRunMetadata(newMeta) {
+      if (newMeta && Array.isArray(newMeta.objectives) && newMeta.objectives.length) {
+        // Pre-populate with saved objectives (capped at 3)
+        this.loadedRunSelectedObjectives = newMeta.objectives.slice(0, 3);
+      } else {
+        this.loadedRunSelectedObjectives = [];
+      }
+      // Close dropdown in case it was left open
+      this.loadedRunObjectivesDropdownOpen = false;
+    },
+    // NEW: enforce 3-objective cap reactively
+    loadedRunSelectedObjectives(newVal) {
+      if (newVal.length > 3) {
+        this.$nextTick(() => {
+          this.loadedRunSelectedObjectives = newVal.slice(0, 3);
+        });
+      }
+    },
+    selectedPreviousRun(newFile, oldFile) {
+      if (newFile !== oldFile) {
+        this._loadedRunCache = null;        // clear cached payload
+        this.fetchRunMetadata(newFile);     // fetch metadata immediately
+      }
+    },
+    currentTraceOrModel: {
+      immediate: true,
+      handler(newVal) {
+        console.log('[ProblemFormulation] trace_or_model changed:', newVal);
+        this.$emit('trace-or-model-selected', newVal);
+      }
+    },
   }
 };
 </script>
@@ -1744,5 +2162,52 @@ export default {
     max-width: 100%;
     min-width: 0;
   }
+}
+
+/* Loaded run objectives selector */
+.loaded-run-objectives {
+  margin-top: 1.25rem;
+}
+
+.form-hint-inline {
+  font-weight: 400;
+  font-size: 0.85rem;
+  color: #6b7280;
+  margin-left: 0.35rem;
+}
+
+/* Chips for selected objectives */
+.selected-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: #e0eaff;
+  color: #2356b8;
+  border-radius: 999px;
+  padding: 0.2rem 0.7rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.chip-remove {
+  background: none;
+  border: none;
+  color: #2356b8;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  margin-left: 0.1rem;
+}
+
+.chip-remove:hover {
+  color: #dc2626;
 }
 </style> 

@@ -17,6 +17,10 @@
           <select v-model="selectedRegion" @change="updatePointSelection">
             <option value="pareto">Pareto Front Ranks</option>
             <option value="custom">Custom Selection</option>
+            <option value="highlighted" :disabled="!highlightedIndices.length">
+              Use Highlighted Points
+              <template v-if="!highlightedIndices.length"> (none selected)</template>
+            </option>
             <option value="all">All Points</option>
           </select>
         </div>
@@ -45,17 +49,11 @@
         <div v-if="selectedRegion === 'custom'" class="control-group">
           <label>Custom Selection:</label>
           <div class="custom-inputs">
-            <div class="input-row">
-              <span>Energy Range:</span>
-              <input type="number" v-model.number="energyMin" placeholder="Min" @change="updatePointSelection" />
+            <div class="input-row" v-for="(obj, idx) in selectedObjectives" :key="obj">
+              <span>{{ obj }} Range:</span>
+              <input type="number" v-model.number="customRanges[idx].min" placeholder="Min" @change="updatePointSelection" />
               <span>-</span>
-              <input type="number" v-model.number="energyMax" placeholder="Max" @change="updatePointSelection" />
-            </div>
-            <div class="input-row">
-              <span>Time Range:</span>
-              <input type="number" v-model.number="timeMin" placeholder="Min" @change="updatePointSelection" />
-              <span>-</span>
-              <input type="number" v-model.number="timeMax" placeholder="Max" @change="updatePointSelection" />
+              <input type="number" v-model.number="customRanges[idx].max" placeholder="Max" @change="updatePointSelection" />
             </div>
           </div>
         </div>
@@ -79,13 +77,12 @@
     <div v-if="rules.length > 0" class="results">
       <h3>Mined Rules</h3>
       <div class="rules-legend">
-        <div class="legend-title">Chiplet Count Ranges:</div>
+        <div class="legend-title">Value Ranges:</div>
         <div class="legend-items">
-          <span class="legend-item"><strong>None:</strong> 0 chiplets</span>
-          <span class="legend-item"><strong>Low:</strong> 1-2 chiplets</span>
-          <span class="legend-item"><strong>Medium:</strong> 3-5 chiplets</span>
-          <span class="legend-item"><strong>High:</strong> 6-8 chiplets</span>
-          <span class="legend-item"><strong>Very High:</strong> 9+ chiplets</span>
+          <span class="legend-item"><strong>None:</strong> 0</span>
+          <span class="legend-item"><strong>Low:</strong> 0–33% of maximum</span>
+          <span class="legend-item"><strong>Medium:</strong> 33–67% of maximum</span>
+          <span class="legend-item"><strong>High:</strong> >67% of maximum</span>
         </div>
       </div>
       <table class="rules-table">
@@ -144,152 +141,171 @@ export default {
     HelpTooltip
   },
   props: {
-    filePath: {
-      type: String,
-      default: null
-    }
+    filePath: { type: String, default: null },
+    selectedModel: { type: String, default: null },
+    currentRunId: { type: String, default: null },
+    agentResults: { type: Object, default: null },
+    selectedObjectives: { type: Array, default: () => [] },
+    // NEW
+    highlightedIndices: { type: Array, default: () => [] },
   },
   data() {
     return {
       rules: [],
       error: null,
       isRunning: false,
-      selectedRegion: 'pareto',
+      selectedRegion: this.highlightedIndices.length ? 'highlighted' : 'pareto',
       paretoStartRank: 1,
       paretoEndRank: 3,
-      energyMin: '',
-      energyMax: '',
-      timeMin: '',
-      timeMax: '',
-      regionSummary: 'Pareto Front Ranks 1 to 3'
+      customRanges: this.selectedObjectives.map(() => ({ min: '', max: '' })),
+      regionSummary: 'Pareto Front Ranks 1 to 3',
     };
   },
-  methods: {
-    async fetchRuleMining() {
-      this.error = null;
-      try {
-        const params = {};
-        
-        // Add file path if provided (for loaded runs)
-        if (this.filePath) {
-          params.file_path = this.filePath;
-          console.log('RuleMining: Fetching with file path:', this.filePath);
+  watch: {
+    agentResults: {
+      immediate: true,
+      handler(newData) {
+        if (newData && newData.rules) {
+          this.rules = newData.rules;
+          this.showResults = true;  // skip to results view
         }
-        
-        const response = await getRuleMining(params);
-        this.rules = response.rules;
-      } catch (error) {
-        console.error("Error fetching rule mining results:", error);
-        this.error = "Failed to fetch rule mining results. Please try again.";
       }
     },
-    async getInsights() {
-      try {
-        // Get optimization context from parent or props
-        const params = {
-          objective: this.$parent.currentObjective || 'both',
-          trace_name: this.$parent.currentTraceName || 'Unknown',
-          run_id: this.$parent.currentRunId || null,
-          // Include rule mining specific parameters
-          region: this.selectedRegion,
-          paretoStartRank: this.paretoStartRank,
-          paretoEndRank: this.paretoEndRank,
-          energyMin: this.energyMin,
-          energyMax: this.energyMax,
-          timeMin: this.timeMin,
-          timeMax: this.timeMax
-        };
-        
-        const response = await getRuleMiningInsights(params);
-        const insights = response.insights;
-        const structuredData = response.structured_data;
-        
-        // Store structured data for potential follow-up questions
-        this.$parent.lastDataMiningResults = {
-          type: 'rule_mining',
-          structured_data: structuredData
-        };
-        
-        this.$emit('send-insights-to-chat', insights);
-      } catch (error) {
-        console.error("Error getting rule mining insights:", error);
-        this.error = "Failed to get insights. Please try again.";
+    highlightedIndices: {
+      immediate: false,
+      handler(newVal, oldVal) {
+        // Auto-switch to "highlighted" the first time the user creates a selection
+        if (newVal.length > 0 && (!oldVal || oldVal.length === 0) && this.selectedRegion !== 'highlighted') {
+          this.selectedRegion = 'highlighted';
+        }
+        // If highlights are cleared and we were using them, fall back to pareto
+        if (newVal.length === 0 && this.selectedRegion === 'highlighted') {
+          this.selectedRegion = 'pareto';
+        }
+        this.updatePointSelection();
       }
     },
-    
-    async sendRuleMiningContextToChat(params, response) {
-      try {
-        // Get optimization context from parent or props
-        const contextParams = {
-          objective: this.$parent.currentObjective || 'both',
-          trace_name: this.$parent.currentTraceName || 'Unknown',
-          run_id: this.$parent.currentRunId || null,
-          // Include rule mining specific parameters
-          region: params.region,
-          paretoStartRank: params.paretoStartRank,
-          paretoEndRank: params.paretoEndRank,
-          energyMin: params.energyMin,
-          energyMax: params.energyMax,
-          timeMin: params.timeMin,
-          timeMax: params.timeMax
-        };
-        
-        // Get insights for context
-        const insightsResponse = await getRuleMiningInsights(contextParams);
-        const structuredData = insightsResponse.structured_data;
-        
-        // Store structured data for potential follow-up questions
-        this.$parent.lastDataMiningResults = {
-          type: 'rule_mining',
-          structured_data: structuredData
-        };
-        
-        // Send context silently to chat (no visible message)
-        this.$emit('send-insights-to-chat', structuredData, { silent: true });
-        
-        console.log('Rule mining context sent to chat silently');
-      } catch (error) {
-        console.error("Error sending rule mining context to chat:", error);
-        // Don't show error to user as this is background functionality
+    selectedObjectives: {
+      immediate: false,
+      handler(newObjs) {
+        // Resize customRanges to match the number of selected objectives
+        while (this.customRanges.length < newObjs.length) {
+          this.customRanges.push({ min: '', max: '' });
+        }
+        this.customRanges.length = newObjs.length;
       }
     },
+  },
+  methods: {
     updatePointSelection() {
       let summary = '';
       if (this.selectedRegion === 'pareto') {
         summary = `Pareto Front Ranks ${this.paretoStartRank} to ${this.paretoEndRank}`;
       } else if (this.selectedRegion === 'custom') {
-        summary = `Custom Selection: Energy ${this.energyMin} to ${this.energyMax}, Time ${this.timeMin} to ${this.timeMax}`;
+        summary = `Custom ranges on first two objectives`;
+      } else if (this.selectedRegion === 'highlighted') {
+        summary = `Using ${this.highlightedIndices.length} highlighted points`;
       } else {
         summary = 'All Points';
       }
       this.regionSummary = summary;
+
+      // For pareto and custom modes, mirror the selection to the plot.
+      // (highlighted mode obviously already matches the plot.)
+      if (this.selectedRegion === 'pareto') {
+        this.$emit('highlight-from-rulemining', { mode: 'pareto', ranks: this.rangeToRanks(this.paretoStartRank, this.paretoEndRank) });
+      } else if (this.selectedRegion === 'custom') {
+        this.$emit('highlight-from-rulemining', {
+          mode: 'custom',
+          ranges: this.customRanges.map(r => ({ min: r.min, max: r.max })),
+        });
+      } else if (this.selectedRegion === 'all') {
+        this.$emit('highlight-from-rulemining', { mode: 'clear' });
+      }
+    },
+    rangeToRanks(start, end) {
+      const out = [];
+      for (let r = start; r <= end; r++) out.push(r);
+      return out;
     },
     async runRuleMining() {
+      console.log("=== runRuleMining CALLED ===");
       this.isRunning = true;
       this.error = null;
+
       try {
         const params = {
           region: this.selectedRegion,
           paretoStartRank: this.paretoStartRank,
           paretoEndRank: this.paretoEndRank,
-          energyMin: this.energyMin,
-          energyMax: this.energyMax,
-          timeMin: this.timeMin,
-          timeMax: this.timeMax
+          evaluator: this.selectedModel,
+          run_id: this.currentRunId,
         };
-        
-        // Add file path if provided (for loaded runs)
+
+        // Pass ALL selected objectives as a single comma-separated param
+        if (this.selectedObjectives && this.selectedObjectives.length > 0) {
+          params.objectives = this.selectedObjectives.join(',');
+        }
+
+        // Custom range inputs — generalize to all objectives, not just first two
+        if (this.selectedRegion === 'custom') {
+          this.selectedObjectives.forEach((objName, idx) => {
+            const range = this.customRanges[idx];
+            if (range) {
+              params[`obj${idx}_min`] = range.min;
+              params[`obj${idx}_max`] = range.max;
+              params[`obj${idx}_name`] = objName;
+            }
+          });
+        }
+
+        // NEW: pass highlighted indices when in "highlighted" mode
+        if (this.selectedRegion === 'highlighted') {
+          if (!this.highlightedIndices || this.highlightedIndices.length === 0) {
+            this.error = "No highlighted points to mine. Please make a selection on the plot first.";
+            this.isRunning = false;
+            return;
+          }
+          params.selected_indices = this.highlightedIndices;
+        }
+
         if (this.filePath) {
           params.file_path = this.filePath;
-          console.log('RuleMining: Using file path:', this.filePath);
         }
-        
+
+        // NEW: pass highlighted indices when in "highlighted" mode
+        if (this.selectedRegion === 'highlighted') {
+          if (!this.highlightedIndices || this.highlightedIndices.length === 0) {
+            this.error = "No highlighted points to mine. Please make a selection on the plot first.";
+            this.isRunning = false;
+            return;
+          }
+          params.selected_indices = this.highlightedIndices;
+        }
+
+        if (this.filePath) {
+          params.file_path = this.filePath;
+        }
+
         const response = await getRuleMining(params);
         this.rules = response.rules;
-        
-        // Automatically send rule mining context to chat
+
+        // After successful mining, mirror the selection back to the plot
+        // for pareto/custom modes (highlighted mode obviously already matches).
+        if (this.selectedRegion === 'pareto') {
+          this.$emit('highlight-from-rulemining', {
+            mode: 'pareto',
+            ranks: this.rangeToRanks(this.paretoStartRank, this.paretoEndRank),
+          });
+        } else if (this.selectedRegion === 'custom') {
+          this.$emit('highlight-from-rulemining', {
+            mode: 'custom',
+            ranges: this.customRanges.map(r => ({ min: r.min, max: r.max })),
+            objectives: this.selectedObjectives.slice(0, 2),
+          });
+        }
+
         await this.sendRuleMiningContextToChat(params, response);
-        
       } catch (error) {
         console.error("Error running rule mining:", error);
         this.error = "Failed to run rule mining. Please try again.";
@@ -321,7 +337,6 @@ export default {
       
       return formattedParts.join(' ');
     },
-    
     formatCondition(condition) {
       // Handle different condition formats
       if (!condition) return '';
@@ -355,17 +370,82 @@ export default {
         const chipletName = chipletNames[chipletType] || chipletType;
         const levelName = levelNames[level] || level;
         
-        return `${levelName} number of ${chipletName} Chiplets`;
+        return `${levelName} value for ${chipletName}`;
       }
       
       // Handle other conditions (like performance metrics)
       // You can add more patterns here as needed
       
       return condition;
+    },
+    async sendRuleMiningContextToChat(params, response) {
+      try {
+        const contextParams = {
+          objective: 'both',
+          trace_name: 'Unknown',
+          run_id: this.currentRunId,  // Use prop
+          region: params.region,
+          paretoStartRank: params.paretoStartRank,
+          paretoEndRank: params.paretoEndRank,
+          energyMin: params.energyMin,
+          energyMax: params.energyMax,
+          timeMin: params.timeMin,
+          timeMax: params.timeMax
+        };
+        
+        const insightsResponse = await getRuleMiningInsights(contextParams);
+        const structuredData = insightsResponse.structured_data;
+        
+        this.$emit('send-insights-to-chat', structuredData, { silent: true });
+        
+        console.log('Rule mining context sent to chat silently');
+      } catch (error) {
+        console.error("Error sending rule mining context to chat:", error);
+      }
+    },
+
+    async getInsights() {
+      if (this.rules.length === 0) {
+        this.error = "Please run the analysis first before getting insights.";
+        return;
+      }
+      
+      try {
+        const params = {
+          objective: 'both',
+          trace_name: 'Unknown',
+          run_id: this.currentRunId,
+          evaluator: this.selectedModel,
+          region: this.selectedRegion,
+          paretoStartRank: this.paretoStartRank,
+          paretoEndRank: this.paretoEndRank,
+          objectives: (this.selectedObjectives || []).join(','),
+        };
+        (this.selectedObjectives || []).forEach((name, i) => {
+          if (this.customRanges[i]?.min !== '') params[`obj${i}_min`] = this.customRanges[i].min;
+          if (this.customRanges[i]?.max !== '') params[`obj${i}_max`] = this.customRanges[i].max;
+        });
+        
+        const response = await getRuleMiningInsights(params);
+        const insights = response.insights;
+        
+        // Emit event to parent to send to chat
+        this.$emit('send-insights-to-chat', insights);
+        
+      } catch (error) {
+        console.error("Error getting insights:", error);
+        this.error = "Failed to get insights. Please try again.";
+      }
     }
+    
+    // ... other methods remain the same
   },
   mounted() {
-    this.updatePointSelection(); // Initialize region summary on mount
+    console.log("RuleMining component mounted!");
+    console.log("Selected model:", this.selectedModel);
+    console.log("File path:", this.filePath);
+    console.log("Current run ID:", this.currentRunId);
+    this.updatePointSelection();
   }
 };
 </script>

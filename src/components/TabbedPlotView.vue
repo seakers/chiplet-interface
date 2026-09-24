@@ -2,10 +2,10 @@
   <div class="tabbed-plot-view">
     <!-- Tab Navigation -->
     <div class="tab-navigation">
-      <button 
-        v-for="tab in tabs" 
+      <button
+        v-for="tab in tabs"
         :key="tab.id"
-        :class="['tab-button', { 'active': activeTab === tab.id }]"
+        :class="['tab-button', { active: activeTab === tab.id }]"
         @click="setActiveTab(tab.id)"
       >
         {{ tab.label }}
@@ -14,60 +14,54 @@
 
     <!-- Tab Content -->
     <div class="tab-content">
-      <!-- Run A Tab -->
+      <!-- Run A -->
       <div v-if="activeTab === 'runA'" class="tab-panel">
         <div class="run-header">
-          <h3>Run A Results</h3>
+          <h3>Run A Results ({{ runAData.model || 'CASCADE' }})</h3>
           <div class="run-stats">
-            <span class="stat-item">
-              <strong>Points:</strong> {{ runAData.points }}
-            </span>
-            <span class="stat-item">
-              <strong>Pareto:</strong> {{ runAData.pareto }}
-            </span>
-            <span class="stat-item">
-              <strong>Best Energy:</strong> {{ formatEnergy(runAData.bestEnergy) }}
-            </span>
-            <span class="stat-item">
-              <strong>Best Time:</strong> {{ formatTime(runAData.bestTime) }}
+            <span
+              v-for="stat in runAStats"
+              :key="stat.label"
+              class="stat-item"
+            >
+              <strong>{{ stat.label }}:</strong> {{ stat.value }}
             </span>
           </div>
         </div>
         <div class="plot-container">
-          <Plot 
+          <Plot
+            ref="plotA"
             :isComparative="false"
             :currentRunId="runAData.runId || 'runA'"
+            :model="runAData.model || 'CASCADE'"
+            :selectedObjectives="runAData.objectives || []"
             :runLabel="'A'"
-            ref="plotA"
           />
         </div>
       </div>
 
-      <!-- Run B Tab -->
+      <!-- Run B -->
       <div v-if="activeTab === 'runB'" class="tab-panel">
         <div class="run-header">
-          <h3>Run B Results</h3>
+          <h3>Run B Results ({{ runBData.model || 'CASCADE' }})</h3>
           <div class="run-stats">
-            <span class="stat-item">
-              <strong>Points:</strong> {{ runBData.points }}
-            </span>
-            <span class="stat-item">
-              <strong>Pareto:</strong> {{ runBData.pareto }}
-            </span>
-            <span class="stat-item">
-              <strong>Best Energy:</strong> {{ formatEnergy(runBData.bestEnergy) }}
-            </span>
-            <span class="stat-item">
-              <strong>Best Time:</strong> {{ formatTime(runBData.bestTime) }}
+            <span
+              v-for="stat in runBStats"
+              :key="stat.label"
+              class="stat-item"
+            >
+              <strong>{{ stat.label }}:</strong> {{ stat.value }}
             </span>
           </div>
         </div>
         <div class="plot-container">
-          <Plot 
+          <Plot
+            ref="plotB"
             :isComparative="false"
             :currentRunId="runBData.runId || 'runB'"
+            :model="runBData.model || 'CASCADE'"
+            :selectedObjectives="runBData.objectives || []"
             :runLabel="'B'"
-            ref="plotB"
           />
         </div>
       </div>
@@ -81,176 +75,100 @@ import axios from 'axios';
 
 export default {
   name: 'TabbedPlotView',
-  components: {
-    Plot
-  },
+  components: { Plot },
   props: {
-    runAData: {
-      type: Object,
-      required: true
-    },
-    runBData: {
-      type: Object,
-      required: true
-    }
+    runAData: { type: Object, required: true },
+    runBData: { type: Object, required: true },
   },
   data() {
     return {
       activeTab: 'runA',
       tabs: [
         { id: 'runA', label: 'Run A' },
-        { id: 'runB', label: 'Run B' }
-      ]
+        { id: 'runB', label: 'Run B' },
+      ],
     };
+  },
+  computed: {
+    // Per-run stat items derived from bestObjectives (evaluator-agnostic)
+    runAStats() { return this.buildStats(this.runAData); },
+    runBStats() { return this.buildStats(this.runBData); },
   },
   methods: {
     setActiveTab(tabId) {
       this.activeTab = tabId;
-      // Refresh the plot for the newly active tab
-      this.$nextTick(() => {
-        if (tabId === 'runA') {
-          this.updatePlotA();
-        } else if (tabId === 'runB') {
-          this.updatePlotB();
-        }
-      });
+      this.$nextTick(() => this.refreshActive());
     },
-    formatEnergy(energy) {
-      if (!energy) return 'N/A';
-      return `${(energy / 1000).toFixed(1)} kJ`;
-    },
-    formatTime(time) {
-      if (!time) return 'N/A';
-      return `${time} ms`;
-    },
-    async fetchComparativeData() {
-      // Prefer run-scoped comparison using selected run IDs; fallback to legacy CSV-based endpoint
-      const runAId = this.runAData && this.runAData.runId ? this.runAData.runId : null;
-      const runBId = this.runBData && this.runBData.runId ? this.runBData.runId : null;
-      if (runAId && runBId) {
-        try {
-          const resp = await axios.get('/api/runs/compare/', {
-            params: { run_a_id: runAId, run_b_id: runBId }
-          });
-          if (resp.data && resp.data.status === 'success' && resp.data.comparison) {
-            const runA = (resp.data.comparison.run_a && resp.data.comparison.run_a.design_points) || [];
-            const runB = (resp.data.comparison.run_b && resp.data.comparison.run_b.design_points) || [];
-            // Attach run labels so existing filtering works
-            const combined = [
-              ...runA.map(pt => ({ ...pt, run: 'A' })),
-              ...runB.map(pt => ({ ...pt, run: 'B' }))
-            ];
-            return combined;
-          }
-        } catch (error) {
-          console.error('Error fetching comparison by run IDs, falling back:', error);
-        }
+
+    buildStats(run) {
+      if (!run) return [];
+      const items = [
+        { label: 'Points', value: run.points ?? 0 },
+        { label: 'Pareto', value: run.pareto ?? 0 },
+      ];
+      const best = run.bestObjectives || {};
+      for (const [obj, val] of Object.entries(best)) {
+        items.push({ label: `Best ${obj}`, value: this.formatValue(val) });
       }
-      // Fallback: legacy endpoint reading default CSVs
+      return items;
+    },
+
+    formatValue(v) {
+      if (v === null || v === undefined) return 'N/A';
+      const n = Number(v);
+      if (Number.isNaN(n)) return String(v);
+      // Simple, unit-free formatting — the objective name already tells the user the unit
+      if (Math.abs(n) >= 1000) return n.toFixed(0);
+      if (Math.abs(n) >= 1)    return n.toFixed(2);
+      return n.toPrecision(3);
+    },
+
+    /**
+     * Fetch points for a single run by its run_id. Each Plot component
+     * already knows how to render points once we hand them the data.
+     */
+    async fetchRunPoints(run) {
+      if (!run || !run.runId) return [];
       try {
-        const response = await fetch('http://127.0.0.1:8000/api/chart-data/?comparative=true');
-        const data = await response.json();
-        return data.data || [];
-      } catch (error) {
-        console.error('Error fetching comparative data (legacy):', error);
+        const resp = await axios.get('/api/chart-data/', {
+          params: {
+            run_id: run.runId,
+            model: run.model,  // 'CASCADE' or 'PISTIL' — no hardcoding
+          },
+        });
+        return resp.data?.data || [];
+      } catch (e) {
+        console.error(`[TabbedPlotView] Failed to fetch points for ${run.runId}:`, e);
         return [];
       }
     },
-    filterDataForRun(allData, runLabel) {
-      return allData.filter(point => point.run === runLabel);
-    },
-    async updatePlotA() {
-      if (this.$refs.plotA) {
-        console.log('Updating Plot A');
-        const allData = await this.fetchComparativeData();
-        const runAData = this.filterDataForRun(allData, 'A');
-        console.log('Run A filtered data:', runAData);
-        if (runAData.length > 0) {
-          this.$refs.plotA.updateChartData(runAData);
-        } else {
-          console.log('No Run A data available');
-        }
-      } else {
-        console.log('Plot A ref not available');
+
+    async updatePlot(refName, run) {
+      const plotRef = this.$refs[refName];
+      if (!plotRef) return;
+      const points = await this.fetchRunPoints(run);
+      if (plotRef.updateChartData) {
+        plotRef.updateChartData(points);
       }
     },
-    async updatePlotB() {
-      if (this.$refs.plotB) {
-        console.log('Updating Plot B');
-        const allData = await this.fetchComparativeData();
-        const runBData = this.filterDataForRun(allData, 'B');
-        console.log('Run B filtered data:', runBData);
-        if (runBData.length > 0) {
-          this.$refs.plotB.updateChartData(runBData);
-        } else {
-          console.log('No Run B data available');
-        }
-      } else {
-        console.log('Plot B ref not available');
-      }
+
+    refreshActive() {
+      if (this.activeTab === 'runA') this.updatePlot('plotA', this.runAData);
+      else                            this.updatePlot('plotB', this.runBData);
     },
-    async updateBothPlots() {
-      console.log('Updating both plots');
-      await this.updatePlotA();
-      await this.updatePlotB();
-    },
+
     async forceRefreshPlots() {
-      console.log('Force refreshing both plots');
-      // Clear any cached data and refetch
-      const allData = await this.fetchComparativeData();
-      console.log('Fetched comparative data:', allData.length, 'points');
-      
-      if (this.$refs.plotA) {
-        const runAData = this.filterDataForRun(allData, 'A');
-        console.log('Run A data for refresh:', runAData.length, 'points');
-        this.$refs.plotA.updateChartData(runAData);
-      }
-      
-      if (this.$refs.plotB) {
-        const runBData = this.filterDataForRun(allData, 'B');
-        console.log('Run B data for refresh:', runBData.length, 'points');
-        this.$refs.plotB.updateChartData(runBData);
-      }
-    }
+      await this.updatePlot('plotA', this.runAData);
+      await this.updatePlot('plotB', this.runBData);
+    },
   },
   watch: {
-    runAData: {
-      handler(newData) {
-        console.log('Run A data changed:', newData);
-        this.$nextTick(async () => {
-          try {
-            await this.updatePlotA();
-          } catch (error) {
-            console.error('Error updating Plot A:', error);
-          }
-        });
-      },
-      deep: true
-    },
-    runBData: {
-      handler(newData) {
-        console.log('Run B data changed:', newData);
-        this.$nextTick(async () => {
-          try {
-            await this.updatePlotB();
-          } catch (error) {
-            console.error('Error updating Plot B:', error);
-          }
-        });
-      },
-      deep: true
-    }
+    runAData: { handler() { this.$nextTick(() => this.updatePlot('plotA', this.runAData)); }, deep: true },
+    runBData: { handler() { this.$nextTick(() => this.updatePlot('plotB', this.runBData)); }, deep: true },
   },
   mounted() {
-    // Initialize plots when component is mounted
-    this.$nextTick(async () => {
-      // Add a small delay to ensure Plot components are fully mounted
-      setTimeout(async () => {
-        console.log('Initializing plots after mount');
-        await this.updateBothPlots();
-      }, 500);
-    });
-  }
+    this.$nextTick(() => setTimeout(() => this.forceRefreshPlots(), 300));
+  },
 };
 </script>
 

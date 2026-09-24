@@ -14,7 +14,9 @@
               @report-generated="handleReportGenerated"
               @run-id-updated="handleRunIdUpdated"
               @view-changed="handleViewChanged"
-              
+              @model-selected="handleModelSelected"
+              @objectives-changed="handleObjectivesChanged"
+              @trace-or-model-selected="handleTraceOrModelSelected"
             />
           </div>
           
@@ -23,14 +25,17 @@
               <h2 class="explorer-title">Design Space Explorer</h2>
               <!-- Zoom Controls -->
               <div class="zoom-controls">
-                <button @click="zoomIn" class="zoom-btn" title="Zoom In">
-                  Zoom In
-                </button>
-                <button @click="zoomOut" class="zoom-btn" title="Zoom Out">
-                  Zoom Out
-                </button>
-                <button @click="resetZoom" class="zoom-btn reset" title="Reset Zoom">
-                  Reset
+                <button @click="zoomIn" class="zoom-btn" title="Zoom In">Zoom In</button>
+                <button @click="zoomOut" class="zoom-btn" title="Zoom Out">Zoom Out</button>
+                <button @click="resetZoom" class="zoom-btn reset" title="Reset Zoom">Reset</button>
+                <!-- NEW -->
+                <button
+                  @click="clearAllHighlights"
+                  class="zoom-btn"
+                  :disabled="highlightedIndices.length === 0"
+                  :title="highlightedIndices.length === 0 ? 'No highlights to clear' : `Clear ${highlightedIndices.length} highlighted points`"
+                >
+                  Clear Highlights{{ highlightedIndices.length > 0 ? ` (${highlightedIndices.length})` : '' }}
                 </button>
               </div>
             </div>
@@ -39,49 +44,39 @@
               :isComparative="isComparative" 
               :currentRunId="currentRunId" 
               :customPoints="customPoints"
+              :model="selectedModel"
+              :selectedObjectives="selectedObjectives"
               @point-selected="handlePointSelected" 
               @point-hovered="handlePointHovered" 
+              @highlights-changed="handleHighlightsChanged"
             />
           </div>
           
           <!-- Region Selection Section -->
           <div class="region-selection-section" v-if="!isComparativeAnalysisActive && showRegionSection">
             <div class="region-selection-header">
-              <h2 class="region-selection-title">Region Selection</h2>
+              <h2 class="region-selection-title">Highlight Selection</h2>
+              <p class="region-selection-subtitle">
+                Select points by region; selections become highlights used by rule mining and distance correlation.
+              </p>
             </div>
             <div class="region-selection-content">
               <div class="region-section">
                 <h4>Rectangular Region</h4>
                 <div class="region-inputs">
-                  <div class="input-group">
-                    <label>Energy Range:</label>
-                    <input 
-                      type="number" 
-                      v-model.number="rectangularRegion.energyMin" 
-                      placeholder="Min" 
+                  <div class="input-group" v-for="(obj, idx) in selectedObjectives.slice(0, 2)" :key="obj">
+                    <label>{{ obj }} Range:</label>
+                    <input
+                      type="number"
+                      v-model.number="rectangularRegion[`obj${idx}Min`]"
+                      placeholder="Min"
                       class="region-input"
                     />
                     <span>to</span>
-                    <input 
-                      type="number" 
-                      v-model.number="rectangularRegion.energyMax" 
-                      placeholder="Max" 
-                      class="region-input"
-                    />
-                  </div>
-                  <div class="input-group">
-                    <label>Time Range:</label>
-                    <input 
-                      type="number" 
-                      v-model.number="rectangularRegion.timeMin" 
-                      placeholder="Min" 
-                      class="region-input"
-                    />
-                    <span>to</span>
-                    <input 
-                      type="number" 
-                      v-model.number="rectangularRegion.timeMax" 
-                      placeholder="Max" 
+                    <input
+                      type="number"
+                      v-model.number="rectangularRegion[`obj${idx}Max`]"
+                      placeholder="Max"
                       class="region-input"
                     />
                   </div>
@@ -123,10 +118,14 @@
 
           <!-- Design Visualizer Section -->
           <div class="design-visualizer-section" v-if="!isComparativeAnalysisActive">
-            <DesignVisualizer 
+            <DesignVisualizer
               :hoveredPoint="hoveredPoint"
               :selectedPoint="selectedPoint"
               :customPoint="customPoint"
+              :selectedXAxis="getSelectedAxes().x"
+              :selectedYAxis="getSelectedAxes().y"
+              :selectedModel="selectedModel"
+              :selectedObjectives="selectedObjectives"
               @evaluate-design="handleEvaluateDesign"
               @point-selected="handlePointSelected"
               @point-hovered="handlePointHovered"
@@ -135,23 +134,47 @@
           
           <!-- Data Mining Section -->
           <div class="data-mining-section" v-if="!isComparativeAnalysisActive && openWindows.DataMining">
-            <DataMining 
+            <DataMining
               :filePath="currentFilePath"
+              :selectedModel="selectedModel"
+              :currentRunId="currentRunId"
+              :agentDcorrData="agentDcorrData"
+              :agentRuleMiningData="agentRuleMiningData"
+              :selectedObjectives="selectedObjectives"
+              :highlightedIndices="highlightedIndices"
               @close="closeWindow('DataMining')"
               @send-insights-to-chat="handleSendInsightsToChat"
+              @agent-data-consumed="agentDcorrData = null; agentRuleMiningData = null"
+              @highlight-from-rulemining="handleHighlightFromRuleMining"
             />
+          </div>
+
+          <!-- Dynamic Plot Section (sibling to Data Mining) -->
+          <div class="dynamic-plot-section" v-if="!isComparativeAnalysisActive && agentPlotData">
+            <div class="dynamic-plot-header">
+              <h2 class="dynamic-plot-title">{{ agentPlotData?.title || 'Generated Plot' }}</h2>
+              <button @click="agentPlotData = null" class="close-btn" aria-label="Close">&times;</button>
+            </div>
+            <DynamicPlot :plotData="agentPlotData" />
           </div>
           
           <!-- Docked windows area: always rendered -->
           <div class="dock-area">
-            <draggable v-model="dockOrder" :options="{animation:150, direction:'horizontal'}" class="dock-row">
+            <draggable 
+              v-model="dockOrder" 
+              :options="{animation:150, direction:'horizontal'}" 
+              class="dock-row"
+              item-key="element"
+            >
               <template #item="{element}">
                 <component
+                  :key="element"
                   :is="element"
                   v-if="openWindows[element] && element !== 'DataMining'"
                   @close="closeWindow(element)"
                   class="dock-window"
                   :closable="true"
+                  :selectedModel="selectedModel"
                   v-on="element === 'RunManager' ? { 'plot-run': handlePlotRun, 'plot-runs': handlePlotRuns, 'show-comparison': handleShowComparison } : {}"
                 />
               </template>
@@ -161,7 +184,21 @@
         <!-- RIGHT COLUMN (Chat) -->
         <div class="right-col">
           <div class="chat-scroll-wrap">
-            <Chat ref="Chat" :chatOpen="true" @highlighting-response="handleHighlightingResponse" @run-id-updated="handleRunIdUpdated" />
+          <Chat ref="Chat"
+            :chatOpen="true"
+            :selectedModel="selectedModel"
+            :run_id="currentRunId"
+            :selectedObjectives='selectedObjectives'
+            :highlightedIndices="highlightedIndices"
+            :traceOrModel="traceOrModel"
+            @highlighting-response="handleHighlightingResponse"
+            @run-id-updated="handleRunIdUpdated"
+            @report-generated="handleReportGenerated"
+            @comparative-analysis-result="handleAgentComparativeResult"
+            @agent-dcorr-update="handleAgentDcorrUpdate"
+            @agent-rule-mining-update="handleAgentRuleMiningUpdate"
+            @agent-plot-create="handleAgentPlotCreate"
+          />
           </div>
         </div>
       </div>
@@ -189,9 +226,10 @@ import Chat from './components/Chat.vue';
 import CustomDesignModal from './components/CustomDesignModal.vue';
 import draggable from 'vuedraggable';
 import { evaluatePointInputs, integrateCustomPointToGA, saveCustomPointToDataset } from './services/evaluation.js';
-import { addInsightsContext, getPointContext, addEnhancedInsightsContext } from './services/chat.js';
+import { addInsightsContext, addInfo, addEnhancedInsightsContext } from './services/chat.js';
 import { generateOptimizationReport } from './services/analytics.js';
 import DesignVisualizer from './components/DesignVisualizer.vue';
+import DynamicPlot from './components/DynamicPlot.vue';
 
 export default {
   components: {
@@ -204,6 +242,7 @@ export default {
     CustomDesignModal,
     draggable,
     DesignVisualizer,
+    DynamicPlot,
   },
   data() {
     return {
@@ -223,19 +262,38 @@ export default {
       customPoint: null, // Store the most recently created custom point for comparison
       showRegionSection: false,
       rectangularRegion: {
-        energyMin: null,
-        energyMax: null,
-        timeMin: null,
-        timeMax: null
+        obj0Min: null, obj0Max: null,
+        obj1Min: null, obj1Max: null,
       },
-      paretoRanks: [1]
+      paretoRanks: [1],
+      selectedModel: null,  // Track selected model - starts as null until user selects
+      traceOrModel: null,
+      selectedObjectives: [],
+      agentDcorrData: null,
+      agentRuleMiningData: null,
+      agentPlotData: null,
+      highlightedIndices: [],
     };
+  },
+  watch: {
+    currentRunId(newVal, oldVal) {
+      console.log('=== App.vue currentRunId changed ===');
+      console.log('  Old value:', oldVal);
+      console.log('  New value:', newVal);
+      console.log('  typeof:', typeof newVal);
+      console.log('=== END ===');
+      },
+    'openWindows.DataMining'(newVal) {
+      console.log('=== DataMining window opened/closed ===');
+      console.log('DataMining open:', newVal);
+      console.log('Current run_id to pass:', this.currentRunId);
+    }
   },
   computed: {
     currentFilePath() {
       // Check if this is a loaded run and return the temporary file path
       if (this.currentRunId && this.currentRunId.startsWith('loaded_run_')) {
-        return `/Users/ramyagotika/research-work/chiplet/chiplet-server/api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${this.currentRunId}.csv`;
+        return `api/Evaluator/cascade/chiplet_model/dse/results/temp_points_${this.currentRunId}.csv`;
       }
       return null;
     }
@@ -283,11 +341,15 @@ export default {
       
       // Only clear custom points if this is actually a new optimization run
       // Check if response contains optimization data (not just chat responses)
+      // Also check for Pistil GA responses which have pistil_run_id
       const isOptimizationRun = response && (
         response.data || 
         response.plot_data || 
         response.run_a_results || 
         response.run_b_results ||
+        response.pistil_run_id ||  // Pistil GA response
+        response.deep_rl_run_id ||
+        response.run_directory ||  // CASCADE run response
         (response.status === 'success' && (response.data || response.plot_data))
       );
       
@@ -316,16 +378,62 @@ export default {
             console.log('Clearing custom points for new optimization run');
         }
         
-        // Set current run ID for polling
-        if (response.run_directory && !this.currentRunId) {
-          this.currentRunId = response.run_directory;
-          console.log('Set current run ID for polling:', this.currentRunId);
+        // Set current run ID for polling (handle CASCADE, PISTIL, and Deep RL)
+        const runId = response.run_directory || response.pistil_run_id || response.deep_rl_run_id;
+        
+        // Update selectedModel if we can detect it from the response
+        if (response.pistil_run_id && !this.selectedModel) {
+          this.selectedModel = 'PISTIL';
+          console.log('[App.vue] Detected PISTIL from response, setting selectedModel');
+        } else if (response.deep_rl_run_id && !this.selectedModel) {
+          // Deep RL can be either model - check response for model info
+          this.selectedModel = response.model || 'CASCADE';
+          console.log('[App.vue] Detected Deep RL response, setting selectedModel to:', this.selectedModel);
+        } else if (response.run_directory && !response.pistil_run_id && !response.deep_rl_run_id && !this.selectedModel) {
+          this.selectedModel = 'CASCADE';
+          console.log('[App.vue] Detected CASCADE from response, setting selectedModel');
         }
         
-        // Fallback: if run ID is not set but available in response, set it
-        if (!this.currentRunId && response.run_directory) {
-          console.log('Fallback: Setting run ID from response:', response.run_directory);
-          this.currentRunId = response.run_directory;
+        // If this is a new run (different from current), clear old points
+        // Only do this for CASCADE - Pistil has its own handling in Plot.vue
+        const isPistilRun = runId && runId.startsWith('pistil_run_');
+        const currentModel = this.selectedModel || this.getSelectedModel();
+        
+        if (runId && runId !== this.currentRunId && currentModel === 'CASCADE') {
+          console.log('[CASCADE] New run detected. Previous:', this.currentRunId, 'New:', runId);
+          // Clear optimization points when starting a new CASCADE run
+          if (this.$refs.Plot && this.$refs.Plot.allPoints) {
+            const customPointsToKeep = this.$refs.Plot.allPoints.filter(pt => 
+              pt.type === 'custom' || pt.type === 'modified' || 
+              pt.source === 'Manual' || pt.label === 'Custom Design' || 
+              pt.label === 'Modified Design' || pt.algorithm === 'Custom Design'
+            );
+            this.$refs.Plot.allPoints = customPointsToKeep;
+            console.log('[CASCADE] Cleared old optimization points for new run. Kept', customPointsToKeep.length, 'custom points');
+            if (this.$refs.Plot.updateChart) {
+              this.$refs.Plot.updateChart();
+            }
+          }
+        } else if (isPistilRun && currentModel === 'PISTIL') {
+          console.log('[PISTIL] New Pistil run detected. Previous:', this.currentRunId, 'New:', runId);
+          // For Pistil, clear old Pistil points but keep custom points
+          if (this.$refs.Plot && this.$refs.Plot.allPoints) {
+            const customPointsToKeep = this.$refs.Plot.allPoints.filter(pt => 
+              pt.type === 'custom' || pt.type === 'modified' || 
+              pt.source === 'Manual' || pt.label === 'Custom Design' ||
+              pt.model !== 'PISTIL'  // Keep non-Pistil points (custom points)
+            );
+            this.$refs.Plot.allPoints = customPointsToKeep;
+            console.log('[PISTIL] Cleared old Pistil points for new run. Kept', customPointsToKeep.length, 'custom points');
+            if (this.$refs.Plot.updateChart) {
+              this.$refs.Plot.updateChart();
+            }
+          }
+        }
+        
+        if (runId) {
+          this.currentRunId = runId;
+          console.log('Set current run ID for polling:', this.currentRunId);
         }
         
         // Update plot data
@@ -347,9 +455,25 @@ export default {
             }
           } else {
             // Normal behavior for new runs
-            if (response.plot_data) {
+            // For Pistil GA, response.data might be empty initially (GA running in background)
+            if (response.pistil_run_id) {
+              console.log('Pistil GA started. Run ID:', response.pistil_run_id);
+              console.log('Points will populate as simulations complete. Polling every 3 seconds...');
+              // Clear plot and show empty state - points will come via polling
+              if (this.$refs.Plot && this.$refs.Plot.allPoints) {
+                // Keep only custom points
+                const customPointsToKeep = this.$refs.Plot.allPoints.filter(pt => 
+                  pt.type === 'custom' || pt.type === 'modified' || 
+                  pt.source === 'Manual' || pt.label === 'Custom Design'
+                );
+                this.$refs.Plot.allPoints = customPointsToKeep;
+                if (this.$refs.Plot.updateChart) {
+                  this.$refs.Plot.updateChart();
+                }
+              }
+            } else if (response.plot_data) {
               this.$refs.Plot.updateChartData(response.plot_data);
-            } else if (response.data) {
+            } else if (response.data && response.data.length > 0) {
               this.$refs.Plot.updateChartData(response.data);
             }
           }
@@ -539,14 +663,14 @@ export default {
     handleDataMiningComplete(dataMiningResults) {
       console.log('App.vue: handleDataMiningComplete called with:', dataMiningResults);
       
-      // Show data mining results in chat
-      if (this.$refs.Chat && this.$refs.Chat.addMessage) {
-        const message = `Data mining analysis completed! Rule mining found ${dataMiningResults.ruleMining?.rules?.length || 0} rules, and distance correlation analysis is ready.`;
-        this.$refs.Chat.addMessage(message, 'chat');
-      }
-      
       // Open the DataMining component window to show the results
       this.toggleWindow('DataMining');
+
+      // Show data mining results in chat
+      //if (this.$refs.Chat && this.$refs.Chat.addMessage) {
+      //  const message = `Data mining analysis completed! Rule mining found ${dataMiningResults.ruleMining?.rules?.length || 0} rules, and distance correlation analysis is ready.`;
+      //  this.$refs.Chat.addMessage(message, 'chat');
+      //}
     },
     handleReportGenerated(reportData) {
       console.log('App.vue: handleReportGenerated called with:', reportData);
@@ -607,13 +731,115 @@ export default {
           console.warn('Could not set ProblemFormulation state from App:', e?.message || e);
         }
       }
-      console.log('=== App.vue: handleRunIdUpdated END ===');
     },
     handleViewChanged(view) {
       console.log('App.vue: View changed to:', view);
       // Set comparative analysis active state based on view
       this.isComparativeAnalysisActive = view === 'comparative';
       console.log('App.vue: Comparative analysis active:', this.isComparativeAnalysisActive);
+    },
+    handleModelSelected(model) {
+      console.log(`[App.vue] Model selected: ${model}`);
+      // Update selectedModel which will trigger Plot's watcher to start polling
+      this.selectedModel = model;
+      console.log(`[App.vue] Updated selectedModel to ${model}. Plot will start polling.`);
+    },
+    handleTraceOrModelSelected(value) {
+      console.log(`[App.vue] trace_or_model updated: ${value}`);
+      this.traceOrModel = value;
+    },
+    handleAgentDcorrUpdate(dcorrData) {
+      console.log('App.vue: Agent triggered distance correlation update:', dcorrData);
+      this.agentDcorrData = null;
+      
+      // Auto-open DataMining window
+      if (!this.openWindows.DataMining) {
+        this.openWindows.DataMining = true;
+      }
+      
+      // Tell DataMining to show distance correlation with new data
+      this.$nextTick(() => {
+        if (this.$refs.DataMining) {
+          // If DataMining is rendered as a child inside the section
+          // We need a way to pass data to it — use a reactive prop
+        }
+        this.agentDcorrData = dcorrData
+      });
+      
+      // Store data for DataMining to pick up
+      // this.agentDcorrData = dcorrData;
+    },
+    handleAgentPlotCreate(plotData) {
+      console.log('App.vue: Agent triggered plot creation:', plotData);
+      // Reset then re-assign so the watcher/re-render fires even if the
+      // user requests a second plot with the same object shape.
+      this.agentPlotData = null;
+      this.$nextTick(() => {
+        this.agentPlotData = plotData;
+      });
+    },
+
+    handleAgentComparativeResult(data) {
+      console.log('App.vue: Agent comparative analysis result', data);
+      // Reuse the existing handleOptimizationSuccess path which already
+      // detects comparative results (it checks for run_a_points, run_b_points etc.) [2]
+      this.handleOptimizationSuccess({
+        status: 'success',
+        run_a_id: data.run_a_id,
+        run_b_id: data.run_b_id,
+        run_a_points: data.run_a_points,
+        run_b_points: data.run_b_points,
+        run_a_pareto: data.run_a_pareto,
+        run_b_pareto: data.run_b_pareto,
+        plot_data: { A: data.run_a_data, B: data.run_b_data },
+      });
+      // Switch to comparative view so ComparativeStudy / ComparativeResults render [10][1]
+      this.isComparativeAnalysisActive = true;
+      this.isComparative = true;
+    },
+
+    handleAgentRuleMiningUpdate(ruleMiningData) {
+      console.log('App.vue: Agent triggered rule mining update:', ruleMiningData);
+      this.agentRuleMiningData = null;
+
+      // Auto-open DataMining window  
+      if (!this.openWindows.DataMining) {
+        this.openWindows.DataMining = true;
+      }
+
+      this.$nextTick(() => {
+        this.agentRuleMiningData = ruleMiningData;
+      });
+      
+      // Store data for DataMining to pick up
+      // this.agentRuleMiningData = ruleMiningData;
+    },
+    getSelectedModel() {
+      // Return the reactive selectedModel property
+      // This is updated when user selects a model via handleModelSelected
+      if (this.selectedModel) {
+        return this.selectedModel;
+      }
+      // Fallback: try to detect from currentRunId if we have one
+      if (this.currentRunId && this.currentRunId.startsWith('pistil_run_')) {
+        return 'PISTIL';
+      }
+      if (this.currentRunId && !this.currentRunId.startsWith('pistil_run_') && this.currentRunId.startsWith('restarted_run_')) {
+        return 'CASCADE';
+      }
+      return null;  // No model selected yet - don't start polling
+    },
+    getSelectedAxes() {
+        if (this.$refs.Plot) {
+            const plotRef = this.$refs.Plot;
+            return {
+                x: plotRef?.selectedXAxis || (this.selectedModel === 'PISTIL' ? 'Latency per Token (ms)' : 'Total time (ms)'),
+                y: plotRef?.selectedYAxis || (this.selectedModel === 'PISTIL' ? 'Energy per Inference (mJ)' : 'Total Energy (mJ)')
+            };
+        }
+        return this.selectedModel === 'PISTIL'
+            ? { x: 'Latency per Token (ms)', y: 'Energy per Inference (mJ)' }
+            : { x: 'Total time (ms)', y: 'Total Energy (mJ)' };
     },
     handlePointSelected(point) {
       console.log('App.vue: handlePointSelected called with:', point);
@@ -634,6 +860,11 @@ export default {
       console.log('App.vue: handleEvaluateDesign called with:', modifiedDesign);
       
       try {
+        if (modifiedDesign.model === 'PISTIL' || this.selectedModel === 'PISTIL') {
+            // TODO: Implement Pistil evaluation endpoint
+            console.warn('Pistil custom design evaluation not yet implemented');
+            return;
+        }
         // Get the current trace (use default if not available)
         const trace = this.currentRunId ? 'gpt-j-65536-weighted' : 'gpt-j-65536-weighted';
         console.log('Evaluating modified design with trace:', trace);
@@ -733,55 +964,48 @@ export default {
       }
     },
     async sendPointContextToChat(point) {
-      console.log("sending data from frontent")
       try {
-        // Prepare the summary context data
-        const summaryInsights = `Selected design point: Execution Time: ${point.x}ms, Energy: ${point.y}mJ, GPU: ${point.gpu || 0}, Attention: ${point.attn || 0}, Sparse: ${point.sparse || 0}, Convolution: ${point.conv || 0}`;
-        
-        // Try to fetch detailed context if we have a run ID
-        let detailedContext = null;
-        if (this.currentRunId) {
-          try {
-            console.log('Fetching detailed point context...');
-            const designName = `${point.gpu || 0}gpu${point.attn || 0}attn${point.sparse || 0}sparse${point.conv || 0}conv`;
-            const contextResponse = await getPointContext({
-              run_id: this.currentRunId,
-              design: designName,
-              gpu: point.gpu || 0,
-              attn: point.attn || 0,
-              sparse: point.sparse || 0,
-              conv: point.conv || 0
-            });
-            
-            if (contextResponse.context) {
-              detailedContext = contextResponse.context;
-              console.log('Detailed context fetched successfully');
-            }
-          } catch (error) {
-            console.log('Detailed context not available for this point:', error.message);
-            // Continue without detailed context - this is not a critical error
-          }
+        // Build params based on model type
+        let params;
+        if (point.model === 'PISTIL' || this.selectedModel === 'PISTIL') {
+          params = {
+            model:               this.selectedModel     ?? 'PISTIL',
+            num_cus:             point.num_cus          ?? 0,
+            num_tmacs:           point.num_tmacs         ?? 0,
+            mem_buf_cap:         point.mem_buf_cap        ?? 0,
+            net_buf_cap:         point.net_buf_cap        ?? 0,
+            mem_banks_per_group: point.mem_banks_per_group ?? 0,
+            mem_ranks:           point.mem_ranks          ?? 0,
+            mem_frac_bank_cap:   point.mem_frac_bank_cap  ?? 0,
+            batch_size:          point.batch_size         ?? 0,
+            kv_cache:            point.kv_cache           ?? 0,
+          };
+        } else {
+          params = {
+            model:  'CASCADE',
+            gpu:    point.gpu    ?? 0,
+            attn:   point.attn   ?? 0,
+            sparse: point.sparse ?? 0,
+            conv:   point.conv   ?? 0,
+          };
         }
-        
-        // Send enhanced context to chat
-        await addEnhancedInsightsContext({
-          summary_insights: summaryInsights,
-          detailed_context: detailedContext
-        });
-        
-        console.log('Enhanced point context sent to chat');
+
+        // Single call using the proper utility function
+        await addInfo(params);
+        console.log('Design info sent to backend:', params);
+
+        // Build and send insights summary as before
+        const objLabels = (this.selectedObjectives || []).map(o => ({
+          name: o,
+          value: this.getObjectiveValueForPoint(point, o)
+        }));
+        const objStr = objLabels.map(o => `${o.name}: ${o.value}`).join(', ');
+        const summaryInsights = params.model === 'PISTIL'
+          ? `Selected PISTIL design: CUs: ${params.num_cus}, TMACs: ${params.num_tmacs}, Batch: ${params.batch_size}; Objectives — ${objStr}`
+          : `Selected CASCADE design: GPU: ${params.gpu}, Attn: ${params.attn}, Sparse: ${params.sparse}, Conv: ${params.conv}; Objectives — ${objStr}`;
+
       } catch (error) {
-        console.error('Error sending enhanced point context to chat:', error);
-        
-        // Fallback to basic context if enhanced fails
-        try {
-          await addInsightsContext({
-            insights: `Selected design point: Execution Time: ${point.x}ms, Energy: ${point.y}mJ, GPU: ${point.gpu || 0}, Attention: ${point.attn || 0}, Sparse: ${point.sparse || 0}, Convolution: ${point.conv || 0}`
-          });
-          console.log('Fallback: Basic point context sent to chat');
-        } catch (fallbackError) {
-          console.error('Error sending fallback context:', fallbackError);
-        }
+        console.error('Error sending point context to chat:', error);
       }
     },
     
@@ -818,10 +1042,8 @@ export default {
     },
     clearRectangularRegion() {
       this.rectangularRegion = {
-        energyMin: null,
-        energyMax: null,
-        timeMin: null,
-        timeMax: null
+        obj0Min: null, obj0Max: null,
+        obj1Min: null, obj1Max: null,
       };
       if (this.$refs.Plot && this.$refs.Plot.clearRectangularRegion) {
         this.$refs.Plot.clearRectangularRegion();
@@ -829,12 +1051,10 @@ export default {
     },
     clearAllRegions() {
       this.rectangularRegion = {
-        energyMin: null,
-        energyMax: null,
-        timeMin: null,
-        timeMax: null
+        obj0Min: null, obj0Max: null,
+        obj1Min: null, obj1Max: null,
       };
-      this.paretoRanks = [1];
+      this.paretoRanks = [];
       if (this.$refs.Plot && this.$refs.Plot.clearAllRegions) {
         this.$refs.Plot.clearAllRegions();
       }
@@ -854,7 +1074,63 @@ export default {
       if (this.$refs.Plot && this.$refs.Plot.clearManualSelection) {
         this.$refs.Plot.clearManualSelection();
       }
-    }
+    },
+    handleObjectivesChanged(objectives) {
+      console.log('[App.vue] Objectives changed:', objectives);
+      this.selectedObjectives = objectives;
+    },
+    getObjectiveValueForPoint(point, objName) {
+      const fieldMap = {
+        'Energy': 'y', 'Runtime': 'x',
+        'DRAM': 'energy_dram', 'Memory': 'mem_accessed', 'FLOPS': 'flops',
+        'Latency per Token':    'latency_per_token_ms',
+        'Energy per Inference': 'energy_per_inference_mJ',
+        'Energy per Token':     'energy_per_token_mJ',
+        'Average Power':        'average_power_W',
+        'System Power':         'system_power_W',
+        'System Cost':          'system_cost',
+        'Avg Compute Util':     'avg_comp_util',
+        'Avg Memory Util':      'avg_mem_util',
+        'Prefill Tokens/sec':   'prefill_tokens_per_sec',
+        'System Compute':       'system_compute_TOPS',
+        'System Bandwidth':     'system_bandwidth_TBps',
+        'System Capacity':      'system_capacity_GB',
+      };
+      const f = fieldMap[objName];
+      const v = f ? point[f] : undefined;
+      return typeof v === 'number' ? v.toFixed(3) : (v ?? 'n/a');
+    },
+    handleHighlightsChanged(indices) {
+      // Single source of truth — sync App-level state with Plot's highlightedPoints.
+      this.highlightedIndices = Array.isArray(indices) ? [...indices] : [];
+      console.log('[App.vue] highlightedIndices updated:', this.highlightedIndices.length);
+    },
+
+    handleHighlightFromRuleMining(payload) {
+      if (!this.$refs.Plot) return;
+      if (payload.mode === 'pareto') {
+        this.$refs.Plot.applyParetoRegion(payload.ranks);
+      } else if (payload.mode === 'custom') {
+        // Map ranges to {obj0Min, obj0Max, obj1Min, obj1Max} expected by Plot
+        const r0 = payload.ranges[0] || {};
+        const r1 = payload.ranges[1] || {};
+        this.$refs.Plot.applyRectangularRegion({
+          obj0Min: r0.min === '' ? null : r0.min,
+          obj0Max: r0.max === '' ? null : r0.max,
+          obj1Min: r1.min === '' ? null : r1.min,
+          obj1Max: r1.max === '' ? null : r1.max,
+        });
+      } else if (payload.mode === 'clear') {
+        this.$refs.Plot.clearAllRegions();
+      }
+    },
+
+    clearAllHighlights() {
+      if (this.$refs.Plot && this.$refs.Plot.clearHighlighting) {
+        this.$refs.Plot.clearHighlighting();
+      }
+      this.highlightedIndices = [];
+    },
   },
 };
 </script>
@@ -1059,6 +1335,12 @@ export default {
   font-weight: 700;
   color: #2d3748;
   margin: 0 0 0.75rem 0;
+}
+
+.region-selection-subtitle {
+  font-size: 0.9rem;
+  color: #6b7280;
+  margin: 0.25rem 0 0 0;
 }
 
 .region-selection-content {
@@ -1636,6 +1918,32 @@ export default {
   .data-mining-section {
     margin: 0 12px 0.75rem 12px;
     padding: 1rem 0.75rem 1rem 0.75rem;
+  }
+
+  .dynamic-plot-section {
+    background: #fff;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(44, 62, 80, 0.08);
+    padding: 2rem 2.5rem 2.5rem 2.5rem;
+    margin-bottom: 2rem;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    margin-left: 32px;
+    margin-right: 32px;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+  }
+  .dynamic-plot-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1.2rem;
+  }
+  .dynamic-plot-title {
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #2d3748;
+    margin: 0;
   }
   
   .create-design-btn-wrap {

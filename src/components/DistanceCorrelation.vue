@@ -7,12 +7,29 @@
         description="A statistical method to detect both linear and nonlinear relationships between chiplet design features and outcomes (e.g., energy, runtime). It's useful when standard correlation misses complex dependencies. The dCor values range from 0 to 1, where 0 means no dependency and 1 means perfect dependency. Higher values indicate stronger influence on outcomes."
       />
     </h2>
+    <div class="highlight-toggle-row">
+      <label class="highlight-toggle" :class="{ disabled: !highlightedIndices.length }">
+        <input
+          type="checkbox"
+          v-model="useHighlightedOnly"
+          :disabled="!highlightedIndices.length"
+          @change="onHighlightToggleChange"
+        />
+        Use only highlighted points
+        <span class="highlight-count">
+          ({{ highlightedIndices.length }} selected)
+        </span>
+      </label>
+    </div>
     <div class="correlation-grid">
-      <div v-for="(plot, index) in plots" :key="index" class="plot-container">
+      <div class="plot-container" v-for="(plot, index) in plots" :key="index">
+        <div v-if="isFiltered" class="subset-badge">
+          Subset: {{ plotData ? plotData.length : 0 }} pts
+        </div>
         <h3 class="plot-title">{{ plot.title }}</h3>
         <div :id="'plot-' + index" class="plot"></div>
-        <div v-if="distanceCorrelations && typeof distanceCorrelations[plot.title.replace(' vs ', '_vs_')] === 'number'" class="correlation-value">
-          dCor = {{ distanceCorrelations[plot.title.replace(' vs ', '_vs_')].toFixed(2) }}
+        <div v-if="getDistanceCorrelationValue(plot) !== null" class="correlation-value">
+          dCor = {{ getDistanceCorrelationValue(plot).toFixed(2) }}
         </div>
       </div>
     </div>
@@ -34,118 +51,89 @@ export default {
     HelpTooltip
   },
   props: {
-    filePath: {
-      type: String,
-      default: null
-    }
+    filePath:           { type: String, default: null },
+    selectedModel:      { type: String, default: null },
+    currentRunId:       { type: String, default: null },
+    selectedObjectives: { type: Array, default: () => [] },
+    // NEW
+    highlightedIndices: { type: Array, default: () => [] },
   },
   data() {
     return {
-      plots: [
-        { x: 'GPU', y: 'Total Energy (mJ)', title: 'GPU vs Energy' },
-        { x: 'Sparse', y: 'Total Energy (mJ)', title: 'Sparse vs Energy' },
-        { x: 'Attention', y: 'Total Energy (mJ)', title: 'Attention vs Energy' },
-        { x: 'Convolution', y: 'Total Energy (mJ)', title: 'Convolution vs Energy' },
-        { x: 'GPU', y: 'Total time (ms)', title: 'GPU vs Time' },
-        { x: 'Sparse', y: 'Total time (ms)', title: 'Sparse vs Time' },
-        { x: 'Attention', y: 'Total time (ms)', title: 'Attention vs Time' },
-        { x: 'Convolution', y: 'Total time (ms)', title: 'Convolution vs Time' }
-      ],
+      plots: [],
       plotData: null,
-      distanceCorrelations: null
+      fullPlotData: null,
+      distanceCorrelations: null,
+      variables: [],
+      objectives: [],
+      // NEW: auto-enable when highlights exist, like RuleMining behavior
+      useHighlightedOnly: this.highlightedIndices && this.highlightedIndices.length > 0,
     };
   },
   methods: {
     async fetchData() {
       try {
         let url = "http://127.0.0.1:8000/api/chart-data/";
-        let params = {};
-        
-        // Add file path if provided (for loaded runs)
+        let params = {
+          model: this.selectedModel || 'CASCADE',
+          run_id: this.currentRunId
+        };
         if (this.filePath) {
           params.file_path = this.filePath;
-          console.log('DistanceCorrelation: Fetching data with file path:', this.filePath);
         }
-        
+
         const response = await axios.get(url, { params });
-        this.plotData = response.data.data;
-        if (response.data.correlations) {
-          this.plots.forEach(plot => {
-            plot.corr = response.data.correlations[plot.title];
-          });
-        }
+        // Cache the full unfiltered dataset
+        this.fullPlotData = response.data.data;
+        // Apply subset filter (if active) before plotting
+        this.applyPlotDataFilter();
         this.createPlots();
       } catch (error) {
         console.error("Error fetching data:", error);
       }
     },
-    async fetchDistanceCorrelation() {
-      try {
-        const params = {};
-        
-        // Add file path if provided (for loaded runs)
-        if (this.filePath) {
-          params.file_path = this.filePath;
-          console.log('DistanceCorrelation: Using file path:', this.filePath);
-        }
-        
-        const response = await getDistanceCorrelation(params);
-        this.distanceCorrelations = response;
-        
-        // Automatically send distance correlation context to chat
-        await this.sendDistanceCorrelationContextToChat(params, response);
-        
-      } catch (error) {
-        console.error("Error fetching distance correlation:", error);
-      }
-    },
-    
-    async sendDistanceCorrelationContextToChat(params, response) {
-      try {
-        // Get optimization context from parent or props
-        const contextParams = {
-          objective: this.$parent.currentObjective || 'both',
-          trace_name: this.$parent.currentTraceName || 'Unknown',
-          run_id: this.$parent.currentRunId || null
-        };
-        
-        // Get insights for context
-        const insightsResponse = await getDistanceCorrelationInsights(contextParams);
-        const structuredData = insightsResponse.structured_data;
-        
-        // Store structured data for potential follow-up questions
-        this.$parent.lastDataMiningResults = {
-          type: 'distance_correlation',
-          structured_data: structuredData
-        };
-        
-        // Send context silently to chat (no visible message)
-        this.$emit('send-insights-to-chat', structuredData, { silent: true });
-        
-        console.log('Distance correlation context sent to chat silently');
-      } catch (error) {
-        console.error("Error sending distance correlation context to chat:", error);
-        // Don't show error to user as this is background functionality
-      }
-    },
-    createPlots() {
-      const chipletKeyMap = {
-        GPU: 'gpu',
-        Sparse: 'sparse',
-        Attention: 'attn',
-        Convolution: 'conv'
-      };
-      this.plots.forEach((plot, index) => {
-        const chipletKey = chipletKeyMap[plot.x];
-        const xData = this.plotData.map(point => point[chipletKey]);
-        const yData = this.plotData.map(point =>
-          plot.y === 'Total Energy (mJ)'
-            ? point['y']
-            : plot.y === 'Total time (ms)'
-              ? point['x']
-              : null
-        );
 
+    /**
+    * Build this.plotData from this.fullPlotData, optionally restricting
+    * to the highlighted indices when useHighlightedOnly is true.
+    */
+    applyPlotDataFilter() {
+      if (!this.fullPlotData) {
+        this.plotData = null;
+        return;
+      }
+      if (this.useHighlightedOnly && this.highlightedIndices.length > 0) {
+        const idxSet = new Set(this.highlightedIndices);
+        this.plotData = this.fullPlotData.filter((_, i) => idxSet.has(i));
+        console.log(
+          `[DistanceCorrelation] Scatter restricted to ${this.plotData.length} / ${this.fullPlotData.length} points`
+        );
+      } else {
+        this.plotData = this.fullPlotData;
+      }
+    },
+
+    createPlots() {
+      // Debug: show what keys are available
+      if (this.plotData && this.plotData.length > 0) {
+        console.log('[DistanceCorrelation] Available keys in plotData:', Object.keys(this.plotData[0]));
+        console.log('[DistanceCorrelation] Sample data point:', this.plotData[0]);
+      }
+      
+      this.plots.forEach((plot, index) => {
+        const variableKey = this.getVariableKey(plot.x);
+        const xData = this.plotData.map(point => point[variableKey]);
+        const yKey = this.getObjectiveKey(plot.y);
+        const yData = this.plotData.map(point => point[yKey]);
+        
+        // Debug logging
+        console.log(`[DistanceCorrelation] Plot ${index}: ${plot.title}`);
+        console.log(`Variable "${plot.x}" mapped to key "${variableKey}"`);
+        console.log(`Objective "${plot.y}" mapped to key "${yKey}"`);
+        console.log(`Sample xData (first 3):`, xData.slice(0, 3));
+        console.log(`Sample yData (first 3):`, yData.slice(0, 3));
+        console.log(`Undefined count - x: ${xData.filter(v => v === undefined).length}, y: ${yData.filter(v => v === undefined).length}`);
+        
         const trace = {
           x: xData,
           y: yData,
@@ -157,11 +145,11 @@ export default {
             opacity: 0.7
           }
         };
-
+        
         const layout = {
           title: null,
           xaxis: {
-            title: 'Chiplet Score',
+            title: this.getVariableDisplayName(plot.x),
             showgrid: true,
             gridcolor: '#e0e0e0',
             zeroline: false
@@ -172,54 +160,323 @@ export default {
             gridcolor: '#e0e0e0',
             zeroline: false
           },
-          margin: {
-            l: 50,
-            r: 20,
-            t: 20,
-            b: 50
-          },
+          margin: { l: 50, r: 20, t: 20, b: 50 },
           paper_bgcolor: 'rgba(0,0,0,0)',
           plot_bgcolor: 'rgba(0,0,0,0)'
         };
-
+        
         const config = {
           responsive: true,
           displayModeBar: false
         };
-
+        
         Plot.newPlot(`plot-${index}`, [trace], layout, config);
       });
     },
+
+    getVariableKey(variableName) {
+      if (!this.plotData || this.plotData.length === 0) {
+        console.warn('[DistanceCorrelation] No plotData available');
+        return variableName;
+      }
+      
+      const availableKeys = Object.keys(this.plotData[0]);
+      
+      // Hard-coded mapping for CASCADE
+      const cascadeMap = {
+        'GPU': 'gpu',
+        'Sparse': 'sparse',
+        'Attention': 'attn',
+        'Convolution': 'conv'
+      };
+      
+      // Check if it's a CASCADE variable
+      if (cascadeMap[variableName]) {
+        const mappedKey = cascadeMap[variableName];
+        if (availableKeys.includes(mappedKey)) {
+          console.log(`[DistanceCorrelation] CASCADE: "${variableName}" → "${mappedKey}" ✓`);
+          return mappedKey;
+        } else {
+          console.warn(`[DistanceCorrelation] CASCADE: "${variableName}" → "${mappedKey}" ✗ (not in data)`);
+        }
+      }
+      
+      // For PISTIL, check if variable name exists as-is
+      if (availableKeys.includes(variableName)) {
+        console.log(`[DistanceCorrelation] PISTIL: "${variableName}" found directly ✓`);
+        return variableName;
+      }
+      
+      console.error(`[DistanceCorrelation] Variable "${variableName}" not found in data. Available:`, availableKeys);
+      return variableName;
+    },
+    
+    getObjectiveKey(objectiveName) {
+      if (!this.plotData || this.plotData.length === 0) return objectiveName;
+      const availableKeys = Object.keys(this.plotData[0]);
+
+      // Friendly name → internal data key
+      const friendlyToField = {
+        'Energy':                'y',
+        'Runtime':               'x',
+        'Latency per Token':     'latency_per_token_ms',
+        'Energy per Inference':  'energy_per_inference_mJ',
+        'Energy per Token':      'energy_per_token_mJ',
+        'Average Power':         'average_power_W',
+        'System Power':          'system_power_W',
+        'System Cost':           'system_cost',
+        'Avg Compute Util':      'avg_comp_util',
+        'Avg Memory Util':       'avg_mem_util',
+        'Prefill Tokens/sec':    'prefill_tokens_per_sec',
+        'System Compute':        'system_compute_TOPS',
+        'System Bandwidth':      'system_bandwidth_TBps',
+        'System Capacity':       'system_capacity_GB',
+      };
+
+      // 1. Direct friendly-name lookup
+      if (friendlyToField[objectiveName]) {
+        const mapped = friendlyToField[objectiveName];
+        if (availableKeys.includes(mapped)) return mapped;
+      }
+
+      // 2. Key already exists as-is (backend returned internal key)
+      if (availableKeys.includes(objectiveName)) return objectiveName;
+
+      // 3. Snake_case fallback
+      const snake = objectiveName.toLowerCase().replace(/\s+/g, '_');
+      if (availableKeys.includes(snake)) return snake;
+
+      console.error(`[DistanceCorrelation] Objective "${objectiveName}" not found. Available:`, availableKeys);
+      return objectiveName;
+    },
+
+    getObjectiveShortName(objectiveName) {
+      const shortNames = {
+        'Energy':                'Energy',
+        'Runtime':               'Runtime',
+        'Latency per Token':     'Latency/Token',
+        'Energy per Inference':  'Energy/Inf',
+        'Energy per Token':      'Energy/Token',
+        'Average Power':         'Avg Power',
+        'System Power':          'Sys Power',
+        'System Cost':           'Cost',
+        'Avg Compute Util':      'Compute Util',
+        'Avg Memory Util':       'Mem Util',
+        'Prefill Tokens/sec':    'Prefill T/s',
+        'System Compute':        'Compute',
+        'System Bandwidth':      'Bandwidth',
+        'System Capacity':       'Capacity',
+      };
+      return shortNames[objectiveName] || objectiveName.split(' ').pop();
+    },
+
+    onHighlightToggleChange() {
+      this.applyPlotDataFilter();
+      this.fetchDistanceCorrelation().then(() => {
+        // fetchDistanceCorrelation already calls fetchData() which calls createPlots(),
+        // but in case the backend call is in flight we ensure the scatter is refreshed:
+        if (this.fullPlotData) this.createPlots();
+      });
+    },
+
+    async fetchDistanceCorrelation() {
+      try {
+        const params = {
+          evaluator: this.selectedModel || 'CASCADE',
+          run_id: this.currentRunId,
+        };
+        if (this.selectedObjectives.length) {
+          params.objectives = this.selectedObjectives.join(',');
+        }
+        if (this.filePath) params.file_path = this.filePath;
+
+        // NEW: pass highlighted indices when toggle is on
+        if (this.useHighlightedOnly && this.highlightedIndices.length > 0) {
+          params.selected_indices = this.highlightedIndices;
+        }
+
+        const response = await getDistanceCorrelation(params);
+        this.distanceCorrelations = response;
+
+        this.parsePlotConfiguration(response);
+        await this.fetchData();
+
+        await this.sendDistanceCorrelationContextToChat(params, response);
+      } catch (error) {
+        console.error("Error fetching distance correlation:", error);
+      }
+    },
+
     async getInsights() {
       try {
-        // Get optimization context from parent or props
         const params = {
           objective: this.$parent.currentObjective || 'both',
           trace_name: this.$parent.currentTraceName || 'Unknown',
-          run_id: this.$parent.currentRunId || null
+          run_id: this.currentRunId || null,
+          evaluator: this.selectedModel || 'CASCADE',
         };
-        
+        // NEW: include subset for insights too, so the LLM commentary matches what's on screen
+        if (this.useHighlightedOnly && this.highlightedIndices.length > 0) {
+          params.selected_indices = this.highlightedIndices;
+        }
+
         const response = await getDistanceCorrelationInsights(params);
         const insights = response.insights;
         const structuredData = response.structured_data;
-        
-        // Store structured data for potential follow-up questions
+
         this.$parent.lastDataMiningResults = {
           type: 'distance_correlation',
           structured_data: structuredData
         };
-        
-        // Emit event to parent to send to chat
+
         this.$emit('send-insights-to-chat', insights);
       } catch (error) {
         console.error("Error getting insights:", error);
       }
-    }
+    },
+
+    parsePlotConfiguration(distanceCorrelations) {
+      // Define which variables we want to plot for each evaluator
+      const evaluatorVariables = {
+        'CASCADE': ['GPU', 'Sparse', 'Attention', 'Convolution'],
+        'PISTIL': ['num_cus', 'num_tmacs', 'mem_buf_cap', 'net_buf_cap', 
+                   'mem_banks_per_group', 'mem_ranks', 'mem_frac_bank_cap', 
+                   'batch_size', 'kv_cache']
+      };
+      
+      // Get the variables for current evaluator
+      const allowedVariables = evaluatorVariables[this.selectedModel] || [];
+      
+      // Extract unique objectives from the keys
+      const objectivesSet = new Set();
+      
+      Object.keys(distanceCorrelations).forEach(key => {
+        const parts = key.split('_vs_');
+        if (parts.length === 2) {
+          objectivesSet.add(parts[1]);
+        }
+      });
+      
+      this.variables = allowedVariables;
+      this.objectives = Array.from(objectivesSet);
+      
+      // Generate plots array dynamically - only for allowed variables
+      this.plots = [];
+      this.variables.forEach(variable => {
+        this.objectives.forEach(objective => {
+          // Create readable titles
+          const varDisplay = this.getVariableDisplayName(variable);
+          const objShortName = this.getObjectiveShortName(objective);
+          
+          this.plots.push({
+            x: variable,  // Keep original name for mapping
+            y: objective,
+            title: `${varDisplay} vs ${objShortName}`
+          });
+        });
+      });
+      
+      console.log('[DistanceCorrelation] Dynamic plots generated:', this.plots);
+      console.log('[DistanceCorrelation] Using variables for', this.selectedModel, ':', this.variables);
+    },
+
+    getVariableDisplayName(variableName) {
+      // Convert variable names to display-friendly format
+      const displayMap = {
+        // CASCADE
+        'GPU': 'GPU',
+        'Sparse': 'Sparse',
+        'Attention': 'Attention',
+        'Convolution': 'Convolution',
+        // PISTIL
+        'num_cus': 'Num CUs',
+        'num_tmacs': 'Num TMACs',
+        'mem_buf_cap': 'Mem Buffer Cap',
+        'net_buf_cap': 'Net Buffer Cap',
+        'mem_banks_per_group': 'Mem Banks per Group',
+        'mem_ranks': 'Mem Ranks',
+        'mem_frac_bank_cap': 'Mem Frac Bank Cap',
+        'batch_size': 'Batch Size',
+        'kv_cache': 'KV Cache'
+      };
+      
+      return displayMap[variableName] || variableName;
+    },
+    
+    async sendDistanceCorrelationContextToChat(params, response) {
+      try {
+        // Don't fire the silent insights call without a run_id (PISTIL requires it)
+        if (!this.currentRunId) {
+          console.log('[DistanceCorrelation] Skipping insights context — no run_id yet');
+          return;
+        }
+        const contextParams = {
+          objective: 'both',
+          trace_name: 'Unknown',
+          run_id: this.currentRunId,
+          evaluator: this.selectedModel || 'CASCADE',
+          // NEW: forward selected objectives so PISTIL uses the right labels, not the Latency/Energy fallback
+          ...(this.selectedObjectives.length ? { objectives: this.selectedObjectives.join(',') } : {}),
+        };
+        const insightsResponse = await getDistanceCorrelationInsights(contextParams);
+        this.$emit('send-insights-to-chat', insightsResponse.structured_data, { silent: true });
+      } catch (error) {
+        console.error("Error sending distance correlation context to chat:", error);
+      }
+    },
+
+    getDistanceCorrelationValue(plot) {
+      if (!this.distanceCorrelations) {
+        return null;
+      }
+      
+      // Construct the key: "variable_vs_objective"
+      // e.g., "num_cus_vs_Total Energy (mJ)"
+      const key = `${plot.x}_vs_${plot.y}`;
+      console.log(`[DistanceCorrelation] Looking for key: "${key}"`);
+      console.log(`[DistanceCorrelation] Available keys:`, Object.keys(this.distanceCorrelations));
+      
+      if (typeof this.distanceCorrelations[key] === 'number') {
+        return this.distanceCorrelations[key];
+      }
+      
+      console.warn(`[DistanceCorrelation] No correlation value found for key "${key}"`);
+      return null;
+    },
+
   },
   mounted() {
-    this.fetchData();
+    console.log('[DistanceCorrelation] Component mounted');
+    console.log('[DistanceCorrelation] selectedModel:', this.selectedModel);
+    console.log('[DistanceCorrelation] currentRunId:', this.currentRunId);
+    console.log('[DistanceCorrelation] filePath:', this.filePath);
+    
     this.fetchDistanceCorrelation();
-  }
+  },
+  watch: {
+    highlightedIndices: {
+      immediate: false,
+      handler(newVal, oldVal) {
+        // Auto-enable the toggle the first time highlights appear
+        if (newVal.length > 0 && (!oldVal || oldVal.length === 0)) {
+          this.useHighlightedOnly = true;
+        }
+        // Auto-disable when highlights are cleared
+        if (newVal.length === 0 && this.useHighlightedOnly) {
+          this.useHighlightedOnly = false;
+        }
+        // Re-filter scatter immediately, then re-run dCor for fresh numbers
+        this.applyPlotDataFilter();
+        if (this.fullPlotData) this.createPlots();
+        this.fetchDistanceCorrelation();
+      },
+    },
+  },
+  computed: {
+    isFiltered() {
+      return this.useHighlightedOnly && this.highlightedIndices.length > 0;
+    },
+  },
 };
 </script>
 
@@ -333,5 +590,59 @@ export default {
 .insights-button:hover {
   background-color: #2866cc;
   box-shadow: 0 4px 16px rgba(51,122,255,0.15);
+}
+
+.highlight-toggle-row {
+  display: flex;
+  justify-content: flex-start;
+  margin: 0.5rem 0 1rem 0;
+  padding: 0.5rem 0.75rem;
+  background: #f5f8ff;
+  border: 1px solid #d1e7ff;
+  border-radius: 6px;
+}
+
+.highlight-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #2d3748;
+  cursor: pointer;
+}
+
+.highlight-toggle.disabled {
+  color: #9ca3af;
+  cursor: not-allowed;
+}
+
+.highlight-toggle input[type="checkbox"] {
+  cursor: pointer;
+}
+
+.highlight-toggle.disabled input[type="checkbox"] {
+  cursor: not-allowed;
+}
+
+.highlight-count {
+  color: #337aff;
+  font-weight: 600;
+}
+
+.highlight-toggle.disabled .highlight-count {
+  color: #9ca3af;
+}
+
+.subset-badge {
+  align-self: flex-end;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #2563eb;
+  background: #dbeafe;
+  border: 1px solid #93c5fd;
+  border-radius: 999px;
+  padding: 2px 8px;
+  margin-bottom: 0.25rem;
 }
 </style> 
